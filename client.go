@@ -1,6 +1,6 @@
 package dao
 
 type ClientCall struct {
-  Method string
-  Params []interface{}
+	Method string
+	Params []interface{}
 }

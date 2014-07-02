@@ -1,6 +1,6 @@
 package dao
 
 type Npc struct {
-  *BioBase
-  id int
+	*BioBase
+	id int
 }
