@@ -2,6 +2,7 @@ package dao
 
 type Bioer interface {
 	Name() string
+	DoJob(func())
 	Run()
 	ShutDown()
 }
@@ -9,6 +10,7 @@ type Bioer interface {
 type BattleBioer interface {
 	BattleInfo() BattleInfo
 	IsDied() bool
+	Level() int
 	Str() int
 	SetStr(int)
 	Vit() int
@@ -24,12 +26,14 @@ type BattleBioer interface {
 	Atk() int
 	SetAtk() int
 	Matk() int
+	DecHp(int)
 	SetMatk() int
 	Hp() int
 	MaxHp() int
 	SetMaxHp() int
 	Mp()
 	MaxMp() int
+	DecMp(int)
 	SetMaxMp() int
 }
 
@@ -75,8 +79,22 @@ type BattleBioBase struct {
 func NewBattleBioBase() *BattleBioBase {
 	b := &BattleBioBase{
 		BioBase: NewBioBase(),
+		level:   1,
+		isDied:  false,
+		str:     0,
+		vit:     0,
+		wis:     0,
+		spi:     0,
+		def:     0,
+		mdef:    0,
+		atk:     0,
+		matk:    0,
+		maxHp:   0,
+		hp:      0,
+		maxMp:   0,
+		mp:      0,
 	}
-	// TODO:
+	// TODO
 	// imple BattleBioBase
 	return b
 }
@@ -84,7 +102,7 @@ func NewBattleBioBase() *BattleBioBase {
 func NewBioBase() *BioBase {
 	return &BioBase{
 		name:  "",
-		pos:   Pos{0, 0},
+		pos:   Pos{0.0, 0.0},
 		scene: nil,
 		job:   make(chan func(), 512),
 		quit:  make(chan struct{}, 1),
@@ -104,6 +122,10 @@ func (b *BioBase) Run() {
 			return
 		}
 	}
+}
+
+func (b *BioBase) DoJob(f func()) {
+	b.job <- f
 }
 
 func (b *BioBase) ShutDown() {

@@ -2,6 +2,7 @@ package dao
 
 import (
 	"errors"
+	"strconv"
 
 	"labix.org/v2/mgo/bson"
 )
@@ -15,16 +16,33 @@ type Account struct {
 	usingChar *Char
 	isOnline  bool
 	db        *DaoDB
+	sock      *wsConn
 	job       chan func()
 	quit      chan struct{}
 }
 
 type AccountDumpDB struct {
-	Id       bson.ObjectId   `bson:"_id"`
-	Username string          `bson:"username"`
-	Password string          `bson:"password"`
-	IsOnline bool            `bson:"isOnline"`
-	Chars    []bson.ObjectId `bson:"chars"`
+	Id       bson.ObjectId            `bson:"_id"`
+	Username string                   `bson:"username"`
+	Password string                   `bson:"password"`
+	IsOnline bool                     `bson:"isOnline"`
+	Chars    map[string]bson.ObjectId `bson:"chars"`
+}
+
+func (aDump *AccountDumpDB) Load(w *World) *Account {
+	acc := NewAccount(aDump.Username, aDump.Password, w)
+	acc.id = aDump.Id
+	for s, cid := range aDump.Chars {
+		cDump := &CharDumpDB{}
+		err := w.db.chars.FindId(cid).One(cDump)
+		if err != nil {
+			panic(err)
+		}
+		char := cDump.Load(acc)
+		index, _ := strconv.Atoi(s)
+		acc.chars[index] = char
+	}
+	return acc
 }
 
 func NewAccount(username string, password string, w *World) *Account {
@@ -33,8 +51,8 @@ func NewAccount(username string, password string, w *World) *Account {
 		username: username,
 		password: password,
 		world:    w,
+		chars:    make(map[int]*Char),
 		isOnline: false,
-		db:       w.db.clone(),
 		job:      make(chan func(), 16),
 		quit:     make(chan struct{}, 1),
 	}
@@ -42,6 +60,8 @@ func NewAccount(username string, password string, w *World) *Account {
 }
 
 func (a *Account) Run() {
+	a.db = a.world.db.CloneSession()
+	defer a.db.session.Close()
 	for {
 		select {
 		case job, ok := <-a.job:
@@ -50,7 +70,6 @@ func (a *Account) Run() {
 			}
 			job()
 		case <-a.quit:
-			// may be do some thing..
 			a.quit <- struct{}{}
 			return
 		}
@@ -72,9 +91,9 @@ func (a *Account) Save() {
 }
 
 func (a *Account) DumpDB() *AccountDumpDB {
-	var chars []bson.ObjectId
+	var chars map[string]bson.ObjectId
 	for i, char := range a.chars {
-		chars[i] = char.id
+		chars[strconv.Itoa(i)] = char.id
 	}
 	return &AccountDumpDB{
 		Id:       a.id,
@@ -97,6 +116,7 @@ func (a *Account) IsSelectingChar() bool {
 	return <-c
 }
 
+// FIXME
 func (a *Account) SelectChar(charPos int) error {
 	errC := make(chan error, 1)
 	a.job <- func() {
@@ -114,11 +134,13 @@ func (a *Account) SelectChar(charPos int) error {
 	return err
 }
 
-func (a *Account) Login() {
+func (a *Account) Login(sock *wsConn) {
 	go a.Run()
 	a.job <- func() {
 		a.isOnline = true
-		// TODO:
+		a.Save()
+		a.sock = sock
+		// TODO
 		// update client to selecting char screen
 	}
 }
@@ -126,8 +148,14 @@ func (a *Account) Login() {
 func (a *Account) Logout() {
 	a.job <- func() {
 		a.isOnline = false
-		a.usingChar.Save()
-		a.usingChar.ShutDown()
+		a.Save()
+		if a.usingChar != nil {
+			a.usingChar.Save()
+      a.usingChar.ShutDown()
+		}
 		a.ShutDown()
+		// TODO
+		// 1. update client to selecting char screen.
+		// 2. close socket connection close(a.sock.send)
 	}
 }

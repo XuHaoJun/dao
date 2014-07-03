@@ -1,16 +1,16 @@
 package dao
 
 import (
-	"github.com/gorilla/websocket"
 	"labix.org/v2/mgo/bson"
 )
 
 type Char struct {
 	*BattleBioBase
-	id      bson.ObjectId
-	account *Account
-	ws      *websocket.Conn
-	db      *DaoDB
+	id        bson.ObjectId
+	account   *Account
+	db        *DaoDB
+	sock      *wsConn
+	lastScene *SceneInfo
 }
 
 type CharDumpDB struct {
@@ -20,13 +20,38 @@ type CharDumpDB struct {
 	LastScene *SceneInfo    `bson:"lastScene"`
 }
 
-func NewChar(acc *Account, ws *websocket.Conn) *Char {
-	return &Char{
+func (cDump *CharDumpDB) Load(acc *Account) *Char {
+	c := NewChar(cDump.Name, acc)
+	c.id = cDump.Id
+	c.lastScene = cDump.LastScene
+	return c
+}
+
+func NewChar(name string, acc *Account) *Char {
+	c := &Char{
 		BattleBioBase: NewBattleBioBase(),
 		id:            bson.NewObjectId(),
 		account:       acc,
-		ws:            ws,
-		db:            acc.world.db.clone(),
+		sock:          acc.sock,
+	}
+	c.name = name
+	return c
+}
+
+func (c *Char) Run() {
+	c.db = c.account.world.db.CloneSession()
+	defer c.db.session.Close()
+	for {
+		select {
+		case job, ok := <-c.job:
+			if !ok {
+				return
+			}
+			job()
+		case <-c.quit:
+			c.quit <- struct{}{}
+			return
+		}
 	}
 }
 

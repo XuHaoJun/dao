@@ -1,13 +1,15 @@
 package dao
 
-import ()
+import (
+	"fmt"
+)
 
 type Pos struct {
 	x float32
 	y float32
 }
 
-// TODO:
+// TODO
 // imple grid way
 type Scene struct {
 	name  string
@@ -60,12 +62,18 @@ func (s *Scene) AddBio(b SceneBioer) {
 		switch b.(type) {
 		case *Mob:
 			mob := b.(*Mob)
-			s.mobs[mob.id] = mob
+			mid := len(s.mobs)
+			mob.SetId(mid)
+			s.mobs[mid] = mob
 		case *Npc:
 			npc := b.(*Npc)
-			s.npcs[npc.id] = npc
+			nid := len(s.npcs)
+			npc.SetId(nid)
+			s.npcs[nid] = npc
 		case *Char:
 			s.chars[b.(*Char)] = struct{}{}
+		default:
+			fmt.Println("you should look the line.")
 		}
 	}
 }

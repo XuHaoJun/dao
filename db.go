@@ -32,7 +32,7 @@ func NewDaoDB(mgourl string, dbname string) (*DaoDB, error) {
 	return daoDB, nil
 }
 
-func (d *DaoDB) clone() *DaoDB {
+func (d *DaoDB) CloneSession() *DaoDB {
 	d2 := &DaoDB{}
 	d2.url = d.url
 	d2.dbName = d.dbName

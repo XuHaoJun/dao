@@ -16,6 +16,7 @@ type World struct {
 func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 	db, err := NewDaoDB(mgourl, dbname)
 	if err != nil {
+		panic(err)
 		return nil, err
 	}
 	w := &World{
@@ -28,6 +29,7 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 }
 
 func (w *World) Run() {
+	defer w.db.session.Close()
 	for {
 		select {
 		case job, ok := <-w.job:
@@ -41,13 +43,10 @@ func (w *World) Run() {
 				acc.Save()
 				if acc.usingChar != nil {
 					acc.usingChar.Save()
-					acc.usingChar.db.session.Close()
 				}
-				acc.db.session.Close()
 				acc.ShutDown()
 				acc.usingChar.ShutDown()
 			}
-			w.db.session.Close()
 			w.quit <- struct{}{}
 			return
 		}
@@ -59,24 +58,42 @@ func (w *World) ShutDown() {
 	<-w.quit
 }
 
-func (w *World) RegisterAccount(username string, password string) error {
+func (w *World) RegisterAccount(username string, password string) {
 	w.job <- func() {
 		foundAcc := AccountDumpDB{}
-		err := w.db.accounts.Find(bson.M{"username": username}).One(foundAcc)
+		err := w.db.accounts.Find(bson.M{"username": username}).One(&foundAcc)
 		if err != nil {
 			panic(err)
 		}
 		if foundAcc.Username == username {
-			// TODO: reject to register same user
-			// return error
+			// TODO
+			// reject to register same user
+			// send some message to client
 		}
 		acc := NewAccount(username, password, w)
 		acc.Save()
 	}
-	return nil
 }
 
-func (w *World) HasAccount(acc *Account) bool {
+func (w *World) LoginAccount(username string, password string, sock *wsConn) {
+	w.job <- func() {
+		foundAcc := &AccountDumpDB{}
+		queryAcc := bson.M{"username": username, "password": password}
+		err := w.db.accounts.Find(queryAcc).One(foundAcc)
+		if err != nil {
+			panic(err)
+		}
+		if foundAcc.Username == "" {
+			// notify client not find or password error
+			return
+		}
+		acc := foundAcc.Load(w)
+		w.accounts[acc] = struct{}{}
+		acc.Login(sock)
+	}
+}
+
+func (w *World) IsOnlineAccount(acc *Account) bool {
 	has := make(chan bool, 1)
 	w.job <- func() {
 		_, ok := w.accounts[acc]
@@ -85,16 +102,10 @@ func (w *World) HasAccount(acc *Account) bool {
 	return <-has
 }
 
-func (w *World) AddAccount(acc *Account) {
-	w.job <- func() {
-		w.accounts[acc] = struct{}{}
-		acc.Login()
-	}
-}
-
-func (w *World) RemoveAccount(acc *Account) {
+func (w *World) LogoutAccount(acc *Account) {
 	w.job <- func() {
 		delete(w.accounts, acc)
+		acc.Logout()
 	}
 }
 
@@ -116,5 +127,6 @@ func (w *World) FindSceneByName(sname string) *Scene {
 func (w *World) AddScene(s *Scene) {
 	w.job <- func() {
 		w.scenes[s] = struct{}{}
+		// may be active scene, like s.Run()
 	}
 }
