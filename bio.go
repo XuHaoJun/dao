@@ -53,8 +53,10 @@ type BioBase struct {
 	name  string
 	pos   Pos
 	scene *Scene
-	job   chan func()
-	quit  chan struct{}
+	// equipItem map[*Item]struct{}
+	// items map[]
+	job  chan func()
+	quit chan struct{}
 }
 
 // BattleBioBase imple Bioer, SceneBioer, BattleBioer

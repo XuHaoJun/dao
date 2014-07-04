@@ -21,6 +21,12 @@ type Account struct {
 	quit      chan struct{}
 }
 
+type AccountClientCall interface {
+	RegisterAccount(username string, password string)
+	LoginAccount(username string, password string, sock *wsConn)
+	LogoutAccount(username string)
+}
+
 type AccountDumpDB struct {
 	Id       bson.ObjectId            `bson:"_id"`
 	Username string                   `bson:"username"`
@@ -81,10 +87,17 @@ func (a *Account) ShutDown() {
 	<-a.quit
 }
 
+func (a *Account) DoSave() {
+	accs := a.world.db.accounts
+	if _, err := accs.UpsertId(a.id, a.DumpDB()); err != nil {
+		panic(err)
+	}
+}
+
 func (a *Account) Save() {
 	a.job <- func() {
-		accs := a.world.db.accounts
-		if _, err := accs.UpsertId(a.id, a.DumpDB); err != nil {
+		accs := a.db.accounts
+		if _, err := accs.UpsertId(a.id, a.DumpDB()); err != nil {
 			panic(err)
 		}
 	}
@@ -151,7 +164,7 @@ func (a *Account) Logout() {
 		a.Save()
 		if a.usingChar != nil {
 			a.usingChar.Save()
-      a.usingChar.ShutDown()
+			a.usingChar.ShutDown()
 		}
 		a.ShutDown()
 		// TODO

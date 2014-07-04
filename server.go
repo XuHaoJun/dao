@@ -7,20 +7,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"reflect"
 	"time"
 
 	"github.com/go-martini/martini"
 	"github.com/gorilla/websocket"
 )
 
-type GameConner interface {
-	ReadMsg(map[string]interface{})
-	WriteMsg(interface{})
-	Close()
-}
-
 type wsConn struct {
 	ws        *websocket.Conn
+	daoServer *DaoServer
 	send      chan []byte
 	readEvent func(msg map[string]interface{})
 }
@@ -80,22 +76,76 @@ func (conn *wsConn) readRun(hub *WsHub) {
 	}()
 	conn.ws.SetReadLimit(2048)
 	conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
-	conn.ws.SetPongHandler(func(string) error { conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second)); return nil })
+	pongFunc := func(string) error {
+		conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	}
+	conn.ws.SetPongHandler(pongFunc)
+	var acc *Account
+ReadLoop:
 	for {
 		_, msg, err := conn.ws.ReadMessage()
 		if err != nil {
-			break
+			break ReadLoop
 		}
+		// echo
+		conn.send <- msg
 		// TODO
 		// connect it to my game
-		// echo
-		//var jsonMsg interface{}
-		//err = json.Unmarshal(msg, &jsonMsg)
-		//if err != nil {
-		//  break
-		//}
-		//fmt.Println(jsonMsg.(map[string]interface{}))
-		conn.send <- msg
+		clientCall := &ClientCall{}
+		err = json.Unmarshal(msg, clientCall)
+		if err != nil {
+			fmt.Println(msg)
+			fmt.Println("can't parse json")
+			continue ReadLoop
+		}
+		fmt.Println(clientCall)
+		switch clientCall.Receiver {
+		case "World":
+			v := conn.daoServer.world.WorldClientCall()
+			f := reflect.ValueOf(v).MethodByName(clientCall.Method)
+			if f.IsNil() {
+				continue ReadLoop
+			}
+			var paramsLen int
+			if clientCall.Method == "LoginAccount" {
+				paramsLen = len(clientCall.Params) + 1
+			} else {
+				paramsLen = len(clientCall.Params)
+			}
+			if f.Type().NumIn() != paramsLen {
+				continue ReadLoop
+			}
+			in, err := clientCall.CastJSON(f)
+			if err != nil {
+				continue ReadLoop
+			}
+			// TODO
+			// imple cast params to
+			if clientCall.Method == "LoginAccount" {
+				in[len(in)-1] = reflect.ValueOf(conn)
+				result := f.Call(in)
+				if foundAcc, ok := result[0].Interface().(*Account); ok {
+					acc = foundAcc
+				}
+			} else {
+				f.Call(in)
+			}
+		case "Account":
+			if acc == nil {
+				continue ReadLoop
+			}
+		case "Char":
+			if acc == nil {
+				continue ReadLoop
+			}
+			char := acc.usingChar
+			if char == nil {
+				continue ReadLoop
+			}
+		default:
+			continue ReadLoop
+		}
 	}
 }
 
@@ -186,8 +236,9 @@ func serveWs(w http.ResponseWriter, r *http.Request, ds *DaoServer) {
 		return
 	}
 	conn := &wsConn{
-		ws:   ws,
-		send: make(chan []byte, 512),
+		ws:        ws,
+		daoServer: ds,
+		send:      make(chan []byte, 1024),
 	}
 	ds.wsHub.register <- conn
 	go conn.writeRun()

@@ -58,7 +58,7 @@ func (c *Char) Run() {
 func (c *Char) Save() {
 	c.job <- func() {
 		chars := c.db.chars
-		if _, err := chars.UpsertId(c.id, c.DumpDB); err != nil {
+		if _, err := chars.UpsertId(c.id, c.DumpDB()); err != nil {
 			panic(err)
 		}
 	}
@@ -73,5 +73,8 @@ func (c *Char) DumpDB() *CharDumpDB {
 	}
 }
 
-func (c *Char) ReadClient(msg []byte) {
+func (c *Char) Logout() {
+	c.job <- func() {
+		c.account.Logout()
+	}
 }
