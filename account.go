@@ -1,7 +1,6 @@
 package dao
 
 import (
-	"errors"
 	"strconv"
 
 	"labix.org/v2/mgo"
@@ -24,6 +23,7 @@ type Account struct {
 
 type AccountClientCall interface {
 	CreateChar(name string)
+	LoginChar(charSlog int)
 	Logout()
 }
 
@@ -58,7 +58,7 @@ func NewAccount(username string, password string, w *World) *Account {
 		world:    w,
 		chars:    make(map[int]*Char),
 		isOnline: false,
-		job:      make(chan func(), 16),
+		job:      make(chan func(), 128),
 		quit:     make(chan struct{}, 1),
 	}
 	return a
@@ -143,22 +143,16 @@ func (a *Account) IsSelectingChar() bool {
 	return <-c
 }
 
-// FIXME
-func (a *Account) SelectChar(charPos int) error {
-	errC := make(chan error, 1)
+func (a *Account) LoginChar(charSlot int) {
 	a.job <- func() {
-		if a.chars[charPos] == nil {
-			errC <- errors.New("Not have char")
-		} else {
-			a.usingChar = a.chars[charPos]
-			close(errC)
+		if a.isOnline == false ||
+			a.chars[charSlot] == nil ||
+			a.usingChar != nil {
+			return
 		}
+		a.usingChar = a.chars[charSlot]
+		a.usingChar.Login()
 	}
-	err, ok := <-errC
-	if !ok {
-		return nil
-	}
-	return err
 }
 
 func (a *Account) Login(sock *wsConn) {
@@ -211,13 +205,11 @@ func (a *Account) Logout() {
 		if a.isOnline == false {
 			return
 		}
-		a.world.LogoutAccount(a.username)
-		a.isOnline = false
-		a.Save()
 		if a.usingChar != nil {
-			a.usingChar.Save()
-			a.usingChar.ShutDown()
+			a.usingChar.Logout()
 		}
+		a.world.LogoutAccount(a.username)
+		a.Save()
 		a.ShutDown()
 		// TODO
 		// 1. update client to selecting char screen.

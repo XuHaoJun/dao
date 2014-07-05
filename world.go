@@ -21,6 +21,7 @@ type WorldClientCall interface {
 
 func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 	db, err := NewDaoDB(mgourl, dbname)
+	baseScene := NewScene("daoCity")
 	if err != nil {
 		panic(err)
 	}
@@ -32,6 +33,7 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		job:      make(chan func(), 512),
 		quit:     make(chan struct{}, 1),
 	}
+	w.scenes[baseScene.name] = baseScene
 	return w, nil
 }
 
@@ -41,6 +43,7 @@ func (w *World) WorldClientCall() WorldClientCall {
 
 func (w *World) Run() {
 	defer w.db.session.Close()
+	go w.scenes["daoCity"].Run()
 	for {
 		select {
 		case job, ok := <-w.job:
@@ -166,6 +169,12 @@ func (w *World) FindSceneByName(sname string) *Scene {
 func (w *World) AddScene(s *Scene) {
 	w.job <- func() {
 		w.scenes[s.name] = s
-		// may be active scene, like s.Run()
+	}
+}
+
+func (w *World) AddSceneAndRun(s *Scene) {
+	w.job <- func() {
+		w.scenes[s.name] = s
+		go s.Run()
 	}
 }

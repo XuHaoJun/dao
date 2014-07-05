@@ -64,14 +64,18 @@ func (s *Scene) AddBio(b SceneBioer) {
 			mob := b.(*Mob)
 			mid := len(s.mobs)
 			mob.SetId(mid)
+			mob.SetScene(s)
 			s.mobs[mid] = mob
 		case *Npc:
 			npc := b.(*Npc)
 			nid := len(s.npcs)
 			npc.SetId(nid)
+			npc.SetScene(s)
 			s.npcs[nid] = npc
 		case *Char:
-			s.chars[b.(*Char)] = struct{}{}
+			char := b.(*Char)
+			char.SetScene(s)
+			s.chars[char] = struct{}{}
 		default:
 			fmt.Println("you should look the line.")
 		}

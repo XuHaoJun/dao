@@ -7,7 +7,9 @@ import (
 type Char struct {
 	*BattleBioBase
 	id        bson.ObjectId
+	isOnline  bool
 	account   *Account
+	world     *World
 	db        *DaoDB
 	sock      *wsConn
 	lastScene *SceneInfo
@@ -23,6 +25,9 @@ type CharDumpDB struct {
 	Wis       int           `bson:"wis"`
 	Spi       int           `bson:"spi"`
 	LastScene *SceneInfo    `bson:"lastScene"`
+}
+type CharClientCall interface {
+	Logout()
 }
 
 func (cDump *CharDumpDB) Load(acc *Account) *Char {
@@ -40,7 +45,9 @@ func NewChar(name string, acc *Account) *Char {
 	c := &Char{
 		BattleBioBase: NewBattleBioBase(),
 		id:            bson.NewObjectId(),
+		isOnline:      false,
 		account:       acc,
+		world:         acc.world,
 		sock:          acc.sock,
 	}
 	c.name = name
@@ -76,12 +83,16 @@ func (c *Char) DoSaveByAccountDB() {
 	}
 }
 
+func (c *Char) DoSave() {
+	chars := c.db.chars
+	if _, err := chars.UpsertId(c.id, c.DumpDB()); err != nil {
+		panic(err)
+	}
+}
+
 func (c *Char) Save() {
 	c.job <- func() {
-		chars := c.db.chars
-		if _, err := chars.UpsertId(c.id, c.DumpDB()); err != nil {
-			panic(err)
-		}
+		c.DoSave()
 	}
 }
 
@@ -105,8 +116,28 @@ func (c *Char) DumpDB() *CharDumpDB {
 	return cDump
 }
 
+func (c *Char) Login() {
+	go c.Run()
+	c.job <- func() {
+		c.isOnline = true
+		scene := c.world.FindSceneByName(c.lastScene.Name)
+		if scene == nil {
+			// TODO
+			// imple saveScene on char
+			// c.world.FindSceneByName(c.saveScene.Name)
+			return
+		}
+		scene.AddBio(c)
+	}
+}
+
 func (c *Char) Logout() {
 	c.job <- func() {
+		if c.isOnline == false {
+			return
+		}
+		c.Save()
 		c.account.Logout()
+		c.ShutDown()
 	}
 }
