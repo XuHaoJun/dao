@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strconv"
 
+	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 )
 
@@ -22,16 +23,14 @@ type Account struct {
 }
 
 type AccountClientCall interface {
-	RegisterAccount(username string, password string)
-	LoginAccount(username string, password string, sock *wsConn)
-	LogoutAccount(username string)
+	CreateChar(name string)
+	Logout()
 }
 
 type AccountDumpDB struct {
 	Id       bson.ObjectId            `bson:"_id"`
 	Username string                   `bson:"username"`
 	Password string                   `bson:"password"`
-	IsOnline bool                     `bson:"isOnline"`
 	Chars    map[string]bson.ObjectId `bson:"chars"`
 }
 
@@ -65,8 +64,12 @@ func NewAccount(username string, password string, w *World) *Account {
 	return a
 }
 
+func (a *Account) AccountClientCall() AccountClientCall {
+	return a
+}
+
 func (a *Account) Run() {
-	a.db = a.world.db.CloneSession()
+	a.db = a.world.DB().CloneSession()
 	defer a.db.session.Close()
 	for {
 		select {
@@ -87,8 +90,23 @@ func (a *Account) ShutDown() {
 	<-a.quit
 }
 
-func (a *Account) DoSave() {
+func (a *Account) DB() *DaoDB {
+	dbC := make(chan *DaoDB, 1)
+	a.job <- func() {
+		dbC <- a.db
+	}
+	return <-dbC
+}
+
+func (a *Account) DoSaveByWorldDB() {
 	accs := a.world.db.accounts
+	if _, err := accs.UpsertId(a.id, a.DumpDB()); err != nil {
+		panic(err)
+	}
+}
+
+func (a *Account) DoSave() {
+	accs := a.db.accounts
 	if _, err := accs.UpsertId(a.id, a.DumpDB()); err != nil {
 		panic(err)
 	}
@@ -96,15 +114,12 @@ func (a *Account) DoSave() {
 
 func (a *Account) Save() {
 	a.job <- func() {
-		accs := a.db.accounts
-		if _, err := accs.UpsertId(a.id, a.DumpDB()); err != nil {
-			panic(err)
-		}
+		a.DoSave()
 	}
 }
 
 func (a *Account) DumpDB() *AccountDumpDB {
-	var chars map[string]bson.ObjectId
+	chars := make(map[string]bson.ObjectId)
 	for i, char := range a.chars {
 		chars[strconv.Itoa(i)] = char.id
 	}
@@ -112,7 +127,6 @@ func (a *Account) DumpDB() *AccountDumpDB {
 		Id:       a.id,
 		Username: a.username,
 		Password: a.password,
-		IsOnline: a.isOnline,
 		Chars:    chars,
 	}
 }
@@ -158,8 +172,46 @@ func (a *Account) Login(sock *wsConn) {
 	}
 }
 
+func (a *Account) UsingChar() *Char {
+	cC := make(chan *Char, 1)
+	a.job <- func() {
+		cC <- a.usingChar
+	}
+	return <-cC
+}
+
+func (a *Account) CreateChar(name string) {
+	a.job <- func() {
+		if a.isOnline == false {
+			return
+		}
+		foundChar := CharDumpDB{}
+		err := a.db.chars.Find(bson.M{"name": name}).One(&foundChar)
+		if err != nil && err != mgo.ErrNotFound {
+			panic(err)
+		} else if foundChar.Name == name {
+			// TODO
+			// reject to register same char name
+			// send some message to client
+			return
+		} else if err == mgo.ErrNotFound {
+			char := NewChar(name, a)
+			char.DoSaveByAccountDB()
+			charsSlotPos := len(a.chars)
+			a.chars[charsSlotPos] = char
+			a.DoSave()
+			// TODO
+			// Update client screen
+		}
+	}
+}
+
 func (a *Account) Logout() {
 	a.job <- func() {
+		if a.isOnline == false {
+			return
+		}
+		a.world.LogoutAccount(a.username)
 		a.isOnline = false
 		a.Save()
 		if a.usingChar != nil {

@@ -13,9 +13,14 @@ type ClientCall struct {
 
 // {"receiver": "World", "method": "RegisterAccount", "params": ["wiwi", "wiwi"]}
 // {"receiver": "World", "method": "LoginAccount", "params": ["wiwi", "wiwi"]}
+// {"receiver": "Account", "method": "Logout", "params": []}
+// {"receiver": "Account", "method": "CreateChar", "params": ["dodo"]}
 
 func (c *ClientCall) CastJSON(f reflect.Value) ([]reflect.Value, error) {
 	numIn := f.Type().NumIn()
+	if len(c.Params) != numIn {
+		return nil, errors.New("not match params length")
+	}
 	in := make([]reflect.Value, numIn)
 	var ftype reflect.Type
 	for i, param := range c.Params {
@@ -45,6 +50,13 @@ func (c *ClientCall) CastJSON(f reflect.Value) ([]reflect.Value, error) {
 		case reflect.Float64:
 			switch param.(type) {
 			case float64:
+				in[i] = reflect.ValueOf(param)
+			default:
+				return nil, errors.New("not match params type")
+			}
+		case reflect.Ptr:
+			switch param.(type) {
+			case (*wsConn):
 				in[i] = reflect.ValueOf(param)
 			default:
 				return nil, errors.New("not match params type")

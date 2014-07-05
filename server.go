@@ -63,18 +63,12 @@ func (conn *wsConn) Close() {
 	close(conn.send)
 }
 
-func (conn *wsConn) readJSON(msg map[string]interface{}) {
-	if conn.readEvent != nil {
-		conn.readEvent(msg)
-	}
-}
-
 func (conn *wsConn) readRun(hub *WsHub) {
 	defer func() {
 		hub.unregister <- conn
 		conn.ws.Close()
 	}()
-	conn.ws.SetReadLimit(2048)
+	conn.ws.SetReadLimit(10240)
 	conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 	pongFunc := func(string) error {
 		conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -95,51 +89,56 @@ ReadLoop:
 		clientCall := &ClientCall{}
 		err = json.Unmarshal(msg, clientCall)
 		if err != nil {
-			fmt.Println(msg)
+			fmt.Println(string(msg))
 			fmt.Println("can't parse json")
 			continue ReadLoop
 		}
 		fmt.Println(clientCall)
 		switch clientCall.Receiver {
 		case "World":
+			if acc != nil {
+				continue ReadLoop
+			}
 			v := conn.daoServer.world.WorldClientCall()
 			f := reflect.ValueOf(v).MethodByName(clientCall.Method)
 			if f.IsNil() {
 				continue ReadLoop
 			}
-			var paramsLen int
 			if clientCall.Method == "LoginAccount" {
-				paramsLen = len(clientCall.Params) + 1
-			} else {
-				paramsLen = len(clientCall.Params)
+				clientCall.Params = append(clientCall.Params, conn)
 			}
-			if f.Type().NumIn() != paramsLen {
+			in, err := clientCall.CastJSON(f)
+			if err != nil {
+				continue ReadLoop
+			}
+			if clientCall.Method == "LoginAccount" {
+				result := f.Call(in)
+				if result[0].IsNil() == false {
+					acc = result[0].Interface().(*Account)
+				}
+			} else {
+				f.Call(in)
+			}
+		case "Account":
+			if acc == nil ||
+				(acc != nil && acc.UsingChar() != nil) {
+				continue ReadLoop
+			}
+			v := acc.AccountClientCall()
+			f := reflect.ValueOf(v).MethodByName(clientCall.Method)
+			if f.IsNil() {
 				continue ReadLoop
 			}
 			in, err := clientCall.CastJSON(f)
 			if err != nil {
 				continue ReadLoop
 			}
-			// TODO
-			// imple cast params to
-			if clientCall.Method == "LoginAccount" {
-				in[len(in)-1] = reflect.ValueOf(conn)
-				result := f.Call(in)
-				if foundAcc, ok := result[0].Interface().(*Account); ok {
-					acc = foundAcc
-				}
-			} else {
-				f.Call(in)
-			}
-		case "Account":
-			if acc == nil {
-				continue ReadLoop
-			}
+			f.Call(in)
 		case "Char":
 			if acc == nil {
 				continue ReadLoop
 			}
-			char := acc.usingChar
+			char := acc.UsingChar()
 			if char == nil {
 				continue ReadLoop
 			}
@@ -161,13 +160,19 @@ func (hub *WsHub) Run() {
 	for {
 		select {
 		case conn := <-hub.register:
+			// TODO
+			// should connect with my game
 			fmt.Printf("hub register %s\n", conn.ws.RemoteAddr())
 			hub.connections[conn] = struct{}{}
 		case conn := <-hub.unregister:
+			// TODO
+			// should connect with my game
 			fmt.Printf("hub unregister %s\n", conn.ws.RemoteAddr())
 			delete(hub.connections, conn)
 			close(conn.send)
 		case <-hub.quit:
+			// TODO
+			// should connect with my game
 			for conn, _ := range hub.connections {
 				close(conn.send)
 			}
@@ -217,8 +222,8 @@ func (s *DaoServer) HandleSignal() {
 }
 
 func (s *DaoServer) ShutDown() {
-	s.world.ShutDown()
 	s.wsHub.ShutDown()
+	s.world.ShutDown()
 }
 
 func serveWs(w http.ResponseWriter, r *http.Request, ds *DaoServer) {

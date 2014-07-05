@@ -17,7 +17,6 @@ type World struct {
 type WorldClientCall interface {
 	RegisterAccount(username string, password string)
 	LoginAccount(username string, password string, sock *wsConn) *Account
-	LogoutAccount(username string)
 }
 
 func NewWorld(name string, mgourl string, dbname string) (*World, error) {
@@ -51,18 +50,20 @@ func (w *World) Run() {
 			job()
 		case <-w.quit:
 			for _, acc := range w.accounts {
-				// may put acc save to shutdown
-				acc.Save()
-				if acc.usingChar != nil {
-					acc.usingChar.Save()
-				}
-				acc.ShutDown()
-				acc.usingChar.ShutDown()
+				acc.Logout()
 			}
 			w.quit <- struct{}{}
 			return
 		}
 	}
+}
+
+func (w *World) DB() *DaoDB {
+	dbC := make(chan *DaoDB, 1)
+	w.job <- func() {
+		dbC <- w.db
+	}
+	return <-dbC
 }
 
 func (w *World) ShutDown() {
@@ -75,17 +76,18 @@ func (w *World) RegisterAccount(username string, password string) {
 		foundAcc := AccountDumpDB{}
 		err := w.db.accounts.Find(bson.M{"username": username}).One(&foundAcc)
 		if err != nil && err != mgo.ErrNotFound {
-			// should return error?
-			return
-		}
-		if foundAcc.Username == username {
+			panic(err)
+		} else if foundAcc.Username == username {
 			// TODO
 			// reject to register same user
 			// send some message to client
 			return
+		} else if err == mgo.ErrNotFound {
+			acc := NewAccount(username, password, w)
+			acc.DoSaveByWorldDB()
+			// TODO
+			// Update client screen
 		}
-		acc := NewAccount(username, password, w)
-		acc.DoSave()
 	}
 }
 
@@ -100,10 +102,10 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 		foundAcc := &AccountDumpDB{}
 		queryAcc := bson.M{"username": username, "password": password}
 		err := w.db.accounts.Find(queryAcc).One(foundAcc)
-		if err != nil {
+		if err != nil && err != mgo.ErrNotFound {
 			panic(err)
 		}
-		if foundAcc.Username == "" {
+		if err == mgo.ErrNotFound {
 			// notify client not find or password error
 			close(accC)
 			return
@@ -122,12 +124,11 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 
 func (w *World) LogoutAccount(username string) {
 	w.job <- func() {
-		acc, ok := w.accounts[username]
+		_, ok := w.accounts[username]
 		if !ok {
 			// should return error
 		} else {
 			delete(w.accounts, username)
-			acc.Logout()
 		}
 	}
 }
@@ -141,14 +142,14 @@ func (w *World) LogoutAccount(username string) {
 // 	return <-has
 // }
 
-// func (w *World) IsOnlineAccount(acc *Account) bool {
-// 	has := make(chan bool, 1)
-// 	w.job <- func() {
-// 		_, ok := w.accounts[acc]
-// 		has <- ok
-// 	}
-// 	return <-has
-// }
+func (w *World) IsOnlineAccount(acc *Account) bool {
+	has := make(chan bool, 1)
+	w.job <- func() {
+		_, ok := w.accounts[acc.username]
+		has <- ok
+	}
+	return <-has
+}
 
 func (w *World) FindSceneByName(sname string) *Scene {
 	sceneChan := make(chan *Scene, 1)
