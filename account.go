@@ -8,7 +8,7 @@ import (
 )
 
 type Account struct {
-	id        bson.ObjectId
+	bsonId    bson.ObjectId
 	username  string
 	password  string
 	world     *World
@@ -36,7 +36,7 @@ type AccountDumpDB struct {
 
 func (aDump *AccountDumpDB) Load(w *World) *Account {
 	acc := NewAccount(aDump.Username, aDump.Password, w)
-	acc.id = aDump.Id
+	acc.bsonId = aDump.Id
 	for s, cid := range aDump.Chars {
 		cDump := &CharDumpDB{}
 		err := w.db.chars.FindId(cid).One(cDump)
@@ -52,7 +52,7 @@ func (aDump *AccountDumpDB) Load(w *World) *Account {
 
 func NewAccount(username string, password string, w *World) *Account {
 	a := &Account{
-		id:       bson.NewObjectId(),
+		bsonId:   bson.NewObjectId(),
 		username: username,
 		password: password,
 		world:    w,
@@ -100,14 +100,14 @@ func (a *Account) DB() *DaoDB {
 
 func (a *Account) DoSaveByWorldDB() {
 	accs := a.world.db.accounts
-	if _, err := accs.UpsertId(a.id, a.DumpDB()); err != nil {
+	if _, err := accs.UpsertId(a.bsonId, a.DumpDB()); err != nil {
 		panic(err)
 	}
 }
 
 func (a *Account) DoSave() {
 	accs := a.db.accounts
-	if _, err := accs.UpsertId(a.id, a.DumpDB()); err != nil {
+	if _, err := accs.UpsertId(a.bsonId, a.DumpDB()); err != nil {
 		panic(err)
 	}
 }
@@ -121,10 +121,10 @@ func (a *Account) Save() {
 func (a *Account) DumpDB() *AccountDumpDB {
 	chars := make(map[string]bson.ObjectId)
 	for i, char := range a.chars {
-		chars[strconv.Itoa(i)] = char.id
+		chars[strconv.Itoa(i)] = char.bsonId
 	}
 	return &AccountDumpDB{
-		Id:       a.id,
+		Id:       a.bsonId,
 		Username: a.username,
 		Password: a.password,
 		Chars:    chars,

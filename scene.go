@@ -15,7 +15,7 @@ type Scene struct {
 	name  string
 	mobs  map[int]*Mob
 	npcs  map[int]*Npc
-	chars map[*Char]struct{}
+	chars map[int]*Char
 	job   chan func()
 	quit  chan struct{}
 }
@@ -31,7 +31,7 @@ func NewScene(name string) *Scene {
 		name:  name,
 		mobs:  make(map[int]*Mob),
 		npcs:  make(map[int]*Npc),
-		chars: make(map[*Char]struct{}),
+		chars: make(map[int]*Char),
 		job:   make(chan func(), 1024),
 		quit:  make(chan struct{}, 1),
 	}
@@ -63,19 +63,21 @@ func (s *Scene) AddBio(b SceneBioer) {
 		case *Mob:
 			mob := b.(*Mob)
 			mid := len(s.mobs)
+			s.mobs[mid] = mob
 			mob.SetId(mid)
 			mob.SetScene(s)
-			s.mobs[mid] = mob
 		case *Npc:
 			npc := b.(*Npc)
 			nid := len(s.npcs)
+			s.npcs[nid] = npc
 			npc.SetId(nid)
 			npc.SetScene(s)
-			s.npcs[nid] = npc
 		case *Char:
 			char := b.(*Char)
+			cid := len(s.chars)
+			s.chars[cid] = char
+			char.SetId(cid)
 			char.SetScene(s)
-			s.chars[char] = struct{}{}
 		default:
 			fmt.Println("you should look the line.")
 		}

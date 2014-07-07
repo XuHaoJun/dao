@@ -16,7 +16,7 @@ import (
 
 type wsConn struct {
 	ws        *websocket.Conn
-	daoServer *DaoServer
+	server    *Server
 	send      chan []byte
 	readEvent func(msg map[string]interface{})
 }
@@ -99,7 +99,7 @@ ReadLoop:
 			if acc != nil {
 				continue ReadLoop
 			}
-			v := conn.daoServer.world.WorldClientCall()
+			v := conn.server.world.WorldClientCall()
 			f := reflect.ValueOf(v).MethodByName(clientCall.Method)
 			if f.IsNil() {
 				continue ReadLoop
@@ -149,7 +149,7 @@ ReadLoop:
 }
 
 type WsHub struct {
-	daoServer   *DaoServer
+	server      *Server
 	connections map[*wsConn]struct{}
 	register    chan *wsConn
 	unregister  chan *wsConn
@@ -187,12 +187,12 @@ func (hub *WsHub) ShutDown() {
 	<-hub.quit
 }
 
-type DaoServer struct {
+type Server struct {
 	world *World
 	wsHub *WsHub
 }
 
-func NewDaoServer() *DaoServer {
+func NewServer() *Server {
 	w, err := NewWorld("first-server", "127.0.0.1", "dao")
 	if err != nil {
 		panic(err)
@@ -203,12 +203,12 @@ func NewDaoServer() *DaoServer {
 		unregister:  make(chan *wsConn),
 		quit:        make(chan struct{}, 1),
 	}
-	ds := &DaoServer{w, hub}
-	hub.daoServer = ds
+	ds := &Server{w, hub}
+	hub.server = ds
 	return ds
 }
 
-func (s *DaoServer) HandleSignal() {
+func (s *Server) HandleSignal() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	for {
@@ -221,12 +221,12 @@ func (s *DaoServer) HandleSignal() {
 	}
 }
 
-func (s *DaoServer) ShutDown() {
+func (s *Server) ShutDown() {
 	s.wsHub.ShutDown()
 	s.world.ShutDown()
 }
 
-func serveWs(w http.ResponseWriter, r *http.Request, ds *DaoServer) {
+func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", 405)
 		return
@@ -241,16 +241,16 @@ func serveWs(w http.ResponseWriter, r *http.Request, ds *DaoServer) {
 		return
 	}
 	conn := &wsConn{
-		ws:        ws,
-		daoServer: ds,
-		send:      make(chan []byte, 1024),
+		ws:     ws,
+		server: ds,
+		send:   make(chan []byte, 1024),
 	}
 	ds.wsHub.register <- conn
 	go conn.writeRun()
 	conn.readRun(ds.wsHub)
 }
 
-func (s *DaoServer) RunHTTP() {
+func (s *Server) RunHTTP() {
 	m := martini.Classic()
 	// browser will download game client from /
 	m.Get("/", func() string {
@@ -279,7 +279,7 @@ func (s *DaoServer) RunHTTP() {
 	m.Run()
 }
 
-func (s *DaoServer) Run() {
+func (s *Server) Run() {
 	go s.world.Run()
 	go s.HandleSignal()
 	s.RunHTTP()

@@ -9,9 +9,10 @@ type World struct {
 	name     string
 	accounts map[string]*Account
 	scenes   map[string]*Scene
-	db       *DaoDB
-	job      chan func()
-	quit     chan struct{}
+	//items    map[bson.ObjectId]*Item
+	db   *DaoDB
+	job  chan func()
+	quit chan struct{}
 }
 
 type WorldClientCall interface {

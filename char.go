@@ -6,11 +6,12 @@ import (
 
 type Char struct {
 	*BattleBioBase
-	id        bson.ObjectId
-	isOnline  bool
-	account   *Account
+	bsonId    bson.ObjectId
+	equips    *Equips
 	world     *World
+	account   *Account
 	db        *DaoDB
+	isOnline  bool
 	sock      *wsConn
 	lastScene *SceneInfo
 }
@@ -26,13 +27,14 @@ type CharDumpDB struct {
 	Spi       int           `bson:"spi"`
 	LastScene *SceneInfo    `bson:"lastScene"`
 }
+
 type CharClientCall interface {
 	Logout()
 }
 
 func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c := NewChar(cDump.Name, acc)
-	c.id = cDump.Id
+	c.bsonId = cDump.Id
 	c.str = cDump.Str
 	c.vit = cDump.Vit
 	c.wis = cDump.Wis
@@ -44,7 +46,7 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 func NewChar(name string, acc *Account) *Char {
 	c := &Char{
 		BattleBioBase: NewBattleBioBase(),
-		id:            bson.NewObjectId(),
+		bsonId:        bson.NewObjectId(),
 		isOnline:      false,
 		account:       acc,
 		world:         acc.world,
@@ -98,8 +100,8 @@ func (c *Char) Save() {
 
 func (c *Char) DumpDB() *CharDumpDB {
 	cDump := &CharDumpDB{
-		Id:        c.id,
-		AccountId: c.account.id,
+		Id:        c.bsonId,
+		AccountId: c.account.bsonId,
 		Name:      c.name,
 		Level:     c.level,
 		Str:       c.str,

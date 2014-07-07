@@ -2,6 +2,8 @@ package dao
 
 type Bioer interface {
 	Name() string
+	Id() int
+	SetId(int)
 	DoJob(func())
 	Run()
 	ShutDown()
@@ -10,6 +12,8 @@ type Bioer interface {
 type BattleBioer interface {
 	BattleInfo() BattleInfo
 	IsDied() bool
+	// Equip(item *Item)
+	// UnEquip(itme)
 	Level() int
 	Str() int
 	SetStr(int)
@@ -38,6 +42,8 @@ type BattleBioer interface {
 }
 
 type SceneBioer interface {
+	Id() int
+	SetId(int)
 	Scene() *Scene
 	SetScene(*Scene)
 	X() float32
@@ -50,6 +56,7 @@ type SceneBioer interface {
 
 // BioBase imple Bioer and SceneBioer
 type BioBase struct {
+	id    int
 	name  string
 	pos   Pos
 	scene *Scene
@@ -197,4 +204,18 @@ func (b *BioBase) SetPos(p Pos) {
 	b.job <- func() {
 		b.pos = p
 	}
+}
+
+func (b *BioBase) SetId(id int) {
+	b.job <- func() {
+		b.id = id
+	}
+}
+
+func (b *BioBase) Id() int {
+	idC := make(chan int, 1)
+	b.job <- func() {
+		idC <- b.id
+	}
+	return <-idC
 }
