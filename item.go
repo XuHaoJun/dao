@@ -33,6 +33,21 @@ func (e *Equipment) DumpDB() *EquipmentDumpDB {
 	}
 }
 
+func (e *EquipmentDumpDB) Load() *Equipment {
+	return &Equipment{
+		Item: &Item{
+			bsonId:     e.Id,
+			name:       e.Name,
+			ageisName:  e.AgeisName,
+			iconViewId: e.IconViewId,
+		},
+		bonus:       e.Bonus.Load(),
+		etype:       e.Etype,
+		equipViewId: e.EquipViewId,
+		equipLimit:  e.EquipLimit.Load(),
+	}
+}
+
 type EquipmentDumpDB struct {
 	Id          bson.ObjectId     `bson:"_id"`
 	Name        string            `bson:"name"`
@@ -91,6 +106,23 @@ func (b *BonusInfo) DumpDB() *BonusInfoDumpDB {
 	}
 }
 
+func (b *BonusInfoDumpDB) Load() *BonusInfo {
+	return &BonusInfo{
+		hp:    b.Hp,
+		maxHp: b.MaxHp,
+		mp:    b.Mp,
+		maxMp: b.MaxMp,
+		str:   b.Str,
+		vit:   b.Vit,
+		wis:   b.Wis,
+		spi:   b.Spi,
+		atk:   b.Atk,
+		matk:  b.Matk,
+		def:   b.Def,
+		mdef:  b.Mdef,
+	}
+}
+
 type EquipLimitDumpDB struct {
 	Level int
 	Str   int
@@ -117,6 +149,16 @@ func (e *EquipLimit) DumpDB() *EquipLimitDumpDB {
 	}
 }
 
+func (e *EquipLimitDumpDB) Load() *EquipLimit {
+	return &EquipLimit{
+		level: e.Level,
+		str:   e.Str,
+		vit:   e.Vit,
+		wis:   e.Wis,
+		spi:   e.Spi,
+	}
+}
+
 const (
 	// Armors
 	Helm = iota
@@ -133,45 +175,176 @@ const (
 	Sword
 )
 
-type Equips struct {
-	leftHand    *Equipment
-	rightHand   *Equipment
-	head        *Equipment
-	shoulders   *Equipment
-	torso       *Equipment
-	wrists      *Equipment
-	hands       *Equipment
-	waist       *Equipment
-	legs        *Equipment
-	leftFinger  *Equipment
-	rightFinger *Equipment
-	neck        *Equipment
+const (
+	LeftHand = iota
+	RightHand
+	Head
+	Shoulders
+	Torso
+	Wrists
+	Hands
+	Waist
+	Legs
+	LeftFinger
+	RightFinger
+	Neck
+	MaxUsingEquip
+)
+
+type UsingEquips []*Equipment
+
+type UsingEquipsDumpDB []*EquipmentDumpDB
+
+func NewUsingEquips() UsingEquips {
+	es := make([]*Equipment, MaxUsingEquip)
+	return UsingEquips(es)
+}
+
+func (es UsingEquips) DumpDB() UsingEquipsDumpDB {
+	esDump := make([]*EquipmentDumpDB, len(es))
+	for i, e := range es {
+		if e != nil {
+			esDump[i] = e.DumpDB()
+		}
+	}
+	return UsingEquipsDumpDB(esDump)
+}
+
+func (esDump UsingEquipsDumpDB) Load() UsingEquips {
+	es := NewUsingEquips()
+	for i, e := range esDump {
+		if e != nil {
+			es[i] = e.Load()
+		}
+	}
+	return es
 }
 
 type EtcItem struct {
 	*Item
 }
 
+type EtcItemDumpDB struct {
+	Id         bson.ObjectId `bson:"_id"`
+	Name       string        `bson:"name"`
+	AgeisName  string        `bson:"ageisName"`
+	IconViewId int           `bson:"iconViewId"`
+}
+
+func (e *EtcItem) DumpDB() *EtcItemDumpDB {
+	return &EtcItemDumpDB{
+		Id:         e.bsonId,
+		Name:       e.name,
+		AgeisName:  e.ageisName,
+		IconViewId: e.iconViewId,
+	}
+}
+
+func (e *EtcItemDumpDB) Load() *EtcItem {
+	return &EtcItem{
+		Item: &Item{
+			bsonId:     e.Id,
+			name:       e.Name,
+			ageisName:  e.AgeisName,
+			iconViewId: e.IconViewId,
+		},
+	}
+}
+
 type UseSelfItem struct {
 	*Item
 }
 
+type UseSelfItemDumpDB struct {
+	Id         bson.ObjectId `bson:"_id"`
+	Name       string        `bson:"name"`
+	AgeisName  string        `bson:"ageisName"`
+	IconViewId int           `bson:"iconViewId"`
+}
+
+func (u *UseSelfItem) DumpDB() *UseSelfItemDumpDB {
+	return &UseSelfItemDumpDB{
+		Id:         u.bsonId,
+		Name:       u.name,
+		AgeisName:  u.ageisName,
+		IconViewId: u.iconViewId,
+	}
+}
+
+func (u *UseSelfItemDumpDB) Load() *UseSelfItem {
+	return &UseSelfItem{
+		Item: &Item{
+			bsonId:     u.Id,
+			name:       u.Name,
+			ageisName:  u.AgeisName,
+			iconViewId: u.IconViewId,
+		},
+	}
+}
+
 type Items struct {
-	equipment   map[int]*Equipment
-	etcItem     map[int]*EtcItem
-	useSelfItem map[int]*UseSelfItem
+	equipment   []*Equipment
+	etcItem     []*EtcItem
+	useSelfItem []*UseSelfItem
 }
 
 type ItemsDumpDB struct {
-	Equipment   map[string]*Equipment
-	EtcItem     map[string]*EtcItem
-	UseSelfItem map[string]*UseSelfItem
+	Equipment   []*EquipmentDumpDB   `bson:"equipment"`
+	EtcItem     []*EtcItemDumpDB     `bson:"etcItem"`
+	UseSelfItem []*UseSelfItemDumpDB `bson:"useSelfItem"`
 }
 
-func NewItems() *Items {
-	return &Items{
-		make(map[int]*Equipment),
-		make(map[int]*EtcItem),
-		make(map[int]*UseSelfItem),
+func (i *Items) DumpDB() *ItemsDumpDB {
+	esDump := make([]*EquipmentDumpDB, len(i.equipment))
+	for i, e := range i.equipment {
+		if e != nil {
+			esDump[i] = e.DumpDB()
+		}
 	}
+	eiDump := make([]*EtcItemDumpDB, len(i.etcItem))
+	for i, e := range i.etcItem {
+		if e != nil {
+			eiDump[i] = e.DumpDB()
+		}
+	}
+	usDump := make([]*UseSelfItemDumpDB, len(i.useSelfItem))
+	for i, e := range i.useSelfItem {
+		if e != nil {
+			usDump[i] = e.DumpDB()
+		}
+	}
+	return &ItemsDumpDB{
+		Equipment:   esDump,
+		EtcItem:     eiDump,
+		UseSelfItem: usDump,
+	}
+}
+
+func (isDump *ItemsDumpDB) Load() *Items {
+	items := NewItems(len(isDump.Equipment))
+	for i, eqDump := range isDump.Equipment {
+		if eqDump != nil {
+			items.equipment[i] = eqDump.Load()
+		}
+	}
+	for i, eiDump := range isDump.EtcItem {
+		if eiDump != nil {
+			items.etcItem[i] = eiDump.Load()
+		}
+	}
+	for i, usDump := range isDump.UseSelfItem {
+		if usDump != nil {
+			items.useSelfItem[i] = usDump.Load()
+		}
+	}
+	return items
+}
+
+func NewItems(maxItems int) *Items {
+	is := &Items{
+		equipment:   make([]*Equipment, maxItems),
+		etcItem:     make([]*EtcItem, maxItems),
+		useSelfItem: make([]*UseSelfItem, maxItems),
+	}
+	return is
 }

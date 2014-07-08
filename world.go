@@ -9,10 +9,14 @@ type World struct {
 	name     string
 	accounts map[string]*Account
 	scenes   map[string]*Scene
-	//items    map[bson.ObjectId]*Item
-	db   *DaoDB
-	job  chan func()
-	quit chan struct{}
+	db       *DaoDB
+	configs  *WorldConfigs
+	job      chan func()
+	quit     chan struct{}
+}
+
+type WorldConfigs struct {
+	maxCharItems int
 }
 
 type WorldClientCall interface {
@@ -28,9 +32,10 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 	}
 	w := &World{
 		name:     name,
-		db:       db,
 		accounts: make(map[string]*Account),
 		scenes:   make(map[string]*Scene),
+		db:       db,
+		configs:  &WorldConfigs{40},
 		job:      make(chan func(), 512),
 		quit:     make(chan struct{}, 1),
 	}
@@ -155,6 +160,10 @@ func (w *World) IsOnlineAccount(acc *Account) bool {
 		has <- ok
 	}
 	return <-has
+}
+
+func (w *World) Configs() *WorldConfigs {
+	return w.configs
 }
 
 func (w *World) FindSceneByName(sname string) *Scene {

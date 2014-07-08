@@ -3,13 +3,14 @@ package dao
 import (
 	"strconv"
 
+	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 )
 
 type Char struct {
 	*BattleBioBase
 	bsonId      bson.ObjectId
-	usingEquips *Equips
+	usingEquips UsingEquips
 	items       *Items
 	world       *World
 	account     *Account
@@ -21,16 +22,17 @@ type Char struct {
 }
 
 type CharDumpDB struct {
-	Id        bson.ObjectId `bson:"_id"`
-	SlotIndex int           `bson:"slotIndex"`
-	Name      string        `bson:"name"`
-	Level     int           `bson:"level"`
-	Str       int           `bson:"str"`
-	Vit       int           `bson:"vit"`
-	Wis       int           `bson:"wis"`
-	Spi       int           `bson:"spi"`
-	LastScene *SceneInfo    `bson:"lastScene"`
-	Items     *ItemsDumpDB  `bson:"items"`
+	Id          bson.ObjectId     `bson:"_id"`
+	SlotIndex   int               `bson:"slotIndex"`
+	Name        string            `bson:"name"`
+	Level       int               `bson:"level"`
+	Str         int               `bson:"str"`
+	Vit         int               `bson:"vit"`
+	Wis         int               `bson:"wis"`
+	Spi         int               `bson:"spi"`
+	LastScene   *SceneInfo        `bson:"lastScene"`
+	UsingEquips UsingEquipsDumpDB `bson:"usingEquips"`
+	Items       *ItemsDumpDB      `bson:"items"`
 }
 
 type CharClientCall interface {
@@ -46,6 +48,8 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.wis = cDump.Wis
 	c.spi = cDump.Spi
 	c.lastScene = cDump.LastScene
+	c.items = cDump.Items.Load()
+	c.usingEquips = cDump.UsingEquips.Load()
 	return c
 }
 
@@ -53,8 +57,8 @@ func NewChar(name string, acc *Account) *Char {
 	c := &Char{
 		BattleBioBase: NewBattleBioBase(),
 		bsonId:        bson.NewObjectId(),
-		usingEquips:   &Equips{},
-		items:         NewItems(),
+		usingEquips:   NewUsingEquips(),
+		items:         NewItems(acc.world.Configs().maxCharItems),
 		isOnline:      false,
 		account:       acc,
 		world:         acc.world,
@@ -86,8 +90,7 @@ func (c *Char) Run() {
 	}
 }
 
-func (c *Char) DoSaveByAccountDB() {
-	accs := c.account.db.accounts
+func (c *Char) saveChar(accs *mgo.Collection) {
 	ci := strconv.Itoa(c.slotIndex)
 	cii := "chars." + ci
 	update := bson.M{"$set": bson.M{cii: c.DumpDB()}}
@@ -96,14 +99,12 @@ func (c *Char) DoSaveByAccountDB() {
 	}
 }
 
+func (c *Char) DoSaveByAccountDB() {
+	c.saveChar(c.account.db.accounts)
+}
+
 func (c *Char) DoSave() {
-	accs := c.db.accounts
-	ci := strconv.Itoa(c.slotIndex)
-	cii := "chars." + ci
-	update := bson.M{"$set": bson.M{cii: c.DumpDB()}}
-	if err := accs.UpdateId(c.account.bsonId, update); err != nil {
-		panic(err)
-	}
+	c.saveChar(c.db.accounts)
 }
 
 func (c *Char) Save() {
@@ -114,15 +115,17 @@ func (c *Char) Save() {
 
 func (c *Char) DumpDB() *CharDumpDB {
 	cDump := &CharDumpDB{
-		Id:        c.bsonId,
-		SlotIndex: c.slotIndex,
-		Name:      c.name,
-		Level:     c.level,
-		Str:       c.str,
-		Vit:       c.vit,
-		Wis:       c.wis,
-		Spi:       c.spi,
-		LastScene: nil,
+		Id:          c.bsonId,
+		SlotIndex:   c.slotIndex,
+		Name:        c.name,
+		Level:       c.level,
+		Str:         c.str,
+		Vit:         c.vit,
+		Wis:         c.wis,
+		Spi:         c.spi,
+		Items:       c.items.DumpDB(),
+		UsingEquips: c.usingEquips.DumpDB(),
+		LastScene:   nil,
 	}
 	if c.scene != nil {
 		cDump.LastScene = &SceneInfo{c.scene.name, c.pos.x, c.pos.y}
