@@ -64,9 +64,16 @@ func (conn *wsConn) Close() {
 }
 
 func (conn *wsConn) readRun(hub *WsHub) {
+	var acc *Account
 	defer func() {
 		hub.unregister <- conn
 		conn.ws.Close()
+		char := acc.UsingChar()
+		if acc != nil && char != nil {
+			char.Logout()
+		} else if acc != nil {
+			acc.Logout()
+		}
 	}()
 	conn.ws.SetReadLimit(10240)
 	conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -75,7 +82,6 @@ func (conn *wsConn) readRun(hub *WsHub) {
 		return nil
 	}
 	conn.ws.SetPongHandler(pongFunc)
-	var acc *Account
 ReadLoop:
 	for {
 		_, msg, err := conn.ws.ReadMessage()

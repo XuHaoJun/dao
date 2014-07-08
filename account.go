@@ -1,8 +1,6 @@
 package dao
 
 import (
-	"strconv"
-
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 )
@@ -12,7 +10,7 @@ type Account struct {
 	username  string
 	password  string
 	world     *World
-	chars     map[int]*Char
+	chars     []*Char
 	usingChar *Char
 	isOnline  bool
 	db        *DaoDB
@@ -28,24 +26,18 @@ type AccountClientCall interface {
 }
 
 type AccountDumpDB struct {
-	Id       bson.ObjectId            `bson:"_id"`
-	Username string                   `bson:"username"`
-	Password string                   `bson:"password"`
-	Chars    map[string]bson.ObjectId `bson:"chars"`
+	Id       bson.ObjectId `bson:"_id"`
+	Username string        `bson:"username"`
+	Password string        `bson:"password"`
+	Chars    []*CharDumpDB `bson:"chars"`
 }
 
 func (aDump *AccountDumpDB) Load(w *World) *Account {
 	acc := NewAccount(aDump.Username, aDump.Password, w)
 	acc.bsonId = aDump.Id
-	for s, cid := range aDump.Chars {
-		cDump := &CharDumpDB{}
-		err := w.db.chars.FindId(cid).One(cDump)
-		if err != nil {
-			panic(err)
-		}
-		char := cDump.Load(acc)
-		index, _ := strconv.Atoi(s)
-		acc.chars[index] = char
+	acc.chars = make([]*Char, len(aDump.Chars))
+	for i, charDump := range aDump.Chars {
+		acc.chars[i] = charDump.Load(acc)
 	}
 	return acc
 }
@@ -56,7 +48,7 @@ func NewAccount(username string, password string, w *World) *Account {
 		username: username,
 		password: password,
 		world:    w,
-		chars:    make(map[int]*Char),
+		chars:    []*Char{},
 		isOnline: false,
 		job:      make(chan func(), 128),
 		quit:     make(chan struct{}, 1),
@@ -119,9 +111,11 @@ func (a *Account) Save() {
 }
 
 func (a *Account) DumpDB() *AccountDumpDB {
-	chars := make(map[string]bson.ObjectId)
-	for i, char := range a.chars {
-		chars[strconv.Itoa(i)] = char.bsonId
+	chars := make([]*CharDumpDB, len(a.chars))
+	ci := 0
+	for _, char := range a.chars {
+		chars[ci] = char.DumpDB()
+		ci++
 	}
 	return &AccountDumpDB{
 		Id:       a.bsonId,
@@ -145,8 +139,9 @@ func (a *Account) IsSelectingChar() bool {
 
 func (a *Account) LoginChar(charSlot int) {
 	a.job <- func() {
+		checkRange := charSlot >= 0 && charSlot < len(a.chars)
 		if a.isOnline == false ||
-			a.chars[charSlot] == nil ||
+			checkRange ||
 			a.usingChar != nil {
 			return
 		}
@@ -179,8 +174,9 @@ func (a *Account) CreateChar(name string) {
 		if a.isOnline == false {
 			return
 		}
-		foundChar := CharDumpDB{}
-		err := a.db.chars.Find(bson.M{"name": name}).One(&foundChar)
+		foundChar := struct{ Name string }{}
+		query := bson.M{"chars": bson.M{"$elemMatch": bson.M{"name": name}}}
+		err := a.db.accounts.Find(query).One(&foundChar)
 		if err != nil && err != mgo.ErrNotFound {
 			panic(err)
 		} else if foundChar.Name == name {
@@ -190,10 +186,9 @@ func (a *Account) CreateChar(name string) {
 			return
 		} else if err == mgo.ErrNotFound {
 			char := NewChar(name, a)
+			char.slotIndex = len(a.chars)
+			a.chars = append(a.chars, char)
 			char.DoSaveByAccountDB()
-			charsSlotPos := len(a.chars)
-			a.chars[charsSlotPos] = char
-			a.DoSave()
 			// TODO
 			// Update client screen
 		}

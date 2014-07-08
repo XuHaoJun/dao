@@ -1,5 +1,10 @@
 package dao
 
+import (
+	"fmt"
+	"time"
+)
+
 type Bioer interface {
 	Name() string
 	Id() int
@@ -83,6 +88,14 @@ type BattleBioBase struct {
 	hp     int
 	maxMp  int
 	mp     int
+}
+
+func (b *BattleBioBase) NormalAttack(target *BattleBioBase) {
+	//b.normalAttackSpeed
+	c := time.Tick(1 * time.Minute)
+	for now := range c {
+		fmt.Printf("%v %s\n", now, "normalattack")
+	}
 }
 
 func NewBattleBioBase() *BattleBioBase {

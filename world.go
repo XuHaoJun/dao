@@ -77,7 +77,9 @@ func (w *World) ShutDown() {
 
 func (w *World) RegisterAccount(username string, password string) {
 	w.job <- func() {
-		foundAcc := AccountDumpDB{}
+		foundAcc := struct {
+			Username string `bson:"username"`
+		}{}
 		err := w.db.accounts.Find(bson.M{"username": username}).One(&foundAcc)
 		if err != nil && err != mgo.ErrNotFound {
 			panic(err)

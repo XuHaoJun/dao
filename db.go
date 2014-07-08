@@ -10,8 +10,6 @@ type DaoDB struct {
 	session  *mgo.Session
 	db       *mgo.Database
 	accounts *mgo.Collection
-	chars    *mgo.Collection
-	items    *mgo.Collection
 }
 
 func NewDaoDB(mgourl string, dbname string) (*DaoDB, error) {
@@ -26,20 +24,19 @@ func NewDaoDB(mgourl string, dbname string) (*DaoDB, error) {
 		session:  mongoSession,
 		db:       db,
 		accounts: db.C("accounts"),
-		chars:    db.C("chars"),
-		items:    db.C("items"),
 	}
 	return daoDB, nil
 }
 
 func (d *DaoDB) CloneSession() *DaoDB {
-	d2 := &DaoDB{}
-	d2.url = d.url
-	d2.dbName = d.dbName
-	d2.session = d.session.Clone()
-	d2.db = d2.session.DB(d.dbName)
-	d2.accounts = d2.db.C("accounts")
-	d2.chars = d2.db.C("chars")
-	d2.items = d2.db.C("items")
+	session := d.session.Clone()
+	db := session.DB(d.dbName)
+	d2 := &DaoDB{
+		url:      d.url,
+		dbName:   d.dbName,
+		session:  session,
+		db:       db,
+		accounts: db.C("accounts"),
+	}
 	return d2
 }

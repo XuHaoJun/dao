@@ -1,24 +1,28 @@
 package dao
 
 import (
+	"strconv"
+
 	"labix.org/v2/mgo/bson"
 )
 
 type Char struct {
 	*BattleBioBase
-	bsonId    bson.ObjectId
-	equips    *Equips
-	world     *World
-	account   *Account
-	db        *DaoDB
-	isOnline  bool
-	sock      *wsConn
-	lastScene *SceneInfo
+	bsonId      bson.ObjectId
+	usingEquips *Equips
+	items       *Items
+	world       *World
+	account     *Account
+	slotIndex   int
+	db          *DaoDB
+	isOnline    bool
+	sock        *wsConn
+	lastScene   *SceneInfo
 }
 
 type CharDumpDB struct {
 	Id        bson.ObjectId `bson:"_id"`
-	AccountId bson.ObjectId `bson:"accountId"`
+	SlotIndex int           `bson:"slotIndex"`
 	Name      string        `bson:"name"`
 	Level     int           `bson:"level"`
 	Str       int           `bson:"str"`
@@ -26,6 +30,7 @@ type CharDumpDB struct {
 	Wis       int           `bson:"wis"`
 	Spi       int           `bson:"spi"`
 	LastScene *SceneInfo    `bson:"lastScene"`
+	Items     *ItemsDumpDB  `bson:"items"`
 }
 
 type CharClientCall interface {
@@ -34,6 +39,7 @@ type CharClientCall interface {
 
 func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c := NewChar(cDump.Name, acc)
+	c.slotIndex = cDump.SlotIndex
 	c.bsonId = cDump.Id
 	c.str = cDump.Str
 	c.vit = cDump.Vit
@@ -47,6 +53,8 @@ func NewChar(name string, acc *Account) *Char {
 	c := &Char{
 		BattleBioBase: NewBattleBioBase(),
 		bsonId:        bson.NewObjectId(),
+		usingEquips:   &Equips{},
+		items:         NewItems(),
 		isOnline:      false,
 		account:       acc,
 		world:         acc.world,
@@ -79,15 +87,21 @@ func (c *Char) Run() {
 }
 
 func (c *Char) DoSaveByAccountDB() {
-	chars := c.account.db.chars
-	if _, err := chars.UpsertId(c.id, c.DumpDB()); err != nil {
+	accs := c.account.db.accounts
+	ci := strconv.Itoa(c.slotIndex)
+	cii := "chars." + ci
+	update := bson.M{"$set": bson.M{cii: c.DumpDB()}}
+	if err := accs.UpdateId(c.account.bsonId, update); err != nil {
 		panic(err)
 	}
 }
 
 func (c *Char) DoSave() {
-	chars := c.db.chars
-	if _, err := chars.UpsertId(c.id, c.DumpDB()); err != nil {
+	accs := c.db.accounts
+	ci := strconv.Itoa(c.slotIndex)
+	cii := "chars." + ci
+	update := bson.M{"$set": bson.M{cii: c.DumpDB()}}
+	if err := accs.UpdateId(c.account.bsonId, update); err != nil {
 		panic(err)
 	}
 }
@@ -101,7 +115,7 @@ func (c *Char) Save() {
 func (c *Char) DumpDB() *CharDumpDB {
 	cDump := &CharDumpDB{
 		Id:        c.bsonId,
-		AccountId: c.account.bsonId,
+		SlotIndex: c.slotIndex,
 		Name:      c.name,
 		Level:     c.level,
 		Str:       c.str,
