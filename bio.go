@@ -1,9 +1,6 @@
 package dao
 
-import (
-	"fmt"
-	"time"
-)
+import ()
 
 type Bioer interface {
 	Name() string
@@ -12,38 +9,6 @@ type Bioer interface {
 	DoJob(func())
 	Run()
 	ShutDown()
-}
-
-type BattleBioer interface {
-	BattleInfo() BattleInfo
-	IsDied() bool
-	// Equip(item *Item)
-	// UnEquip(itme)
-	Level() int
-	Str() int
-	SetStr(int)
-	Vit() int
-	SetVit(int)
-	Wis() int
-	SetWis(int)
-	Spi() int
-	SetSpi(int)
-	Def() int
-	SetDef() int
-	Mdef() int
-	SetMdef() int
-	Atk() int
-	SetAtk() int
-	Matk() int
-	DecHp(int)
-	SetMatk() int
-	Hp() int
-	MaxHp() int
-	SetMaxHp() int
-	Mp()
-	MaxMp() int
-	DecMp(int)
-	SetMaxMp() int
 }
 
 type SceneBioer interface {
@@ -69,56 +34,6 @@ type BioBase struct {
 	// items map[]
 	job  chan func()
 	quit chan struct{}
-}
-
-// BattleBioBase imple Bioer, SceneBioer, BattleBioer
-type BattleBioBase struct {
-	*BioBase
-	level  int
-	isDied bool
-	str    int
-	vit    int
-	wis    int
-	spi    int
-	def    int
-	mdef   int
-	atk    int
-	matk   int
-	maxHp  int
-	hp     int
-	maxMp  int
-	mp     int
-}
-
-func (b *BattleBioBase) NormalAttack(target *BattleBioBase) {
-	//b.normalAttackSpeed
-	c := time.Tick(1 * time.Minute)
-	for now := range c {
-		fmt.Printf("%v %s\n", now, "normalattack")
-	}
-}
-
-func NewBattleBioBase() *BattleBioBase {
-	b := &BattleBioBase{
-		BioBase: NewBioBase(),
-		level:   1,
-		isDied:  false,
-		str:     0,
-		vit:     0,
-		wis:     0,
-		spi:     0,
-		def:     0,
-		mdef:    0,
-		atk:     0,
-		matk:    0,
-		maxHp:   0,
-		hp:      0,
-		maxMp:   0,
-		mp:      0,
-	}
-	// TODO
-	// imple BattleBioBase
-	return b
 }
 
 func NewBioBase() *BioBase {
