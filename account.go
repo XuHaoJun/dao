@@ -175,8 +175,9 @@ func (a *Account) CreateChar(name string) {
 			return
 		}
 		foundChar := struct{ Name string }{}
-		query := bson.M{"chars": bson.M{"$elemMatch": bson.M{"name": name}}}
-		err := a.db.accounts.Find(query).One(&foundChar)
+		queryChar := bson.M{"chars": bson.M{"$elemMatch": bson.M{"name": name}}}
+		selectChar := bson.M{"name": 1}
+		err := a.db.accounts.Find(queryChar).Select(selectChar).One(&foundChar)
 		if err != nil && err != mgo.ErrNotFound {
 			panic(err)
 		} else if foundChar.Name == name {

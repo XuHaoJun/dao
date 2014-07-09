@@ -85,7 +85,9 @@ func (w *World) RegisterAccount(username string, password string) {
 		foundAcc := struct {
 			Username string `bson:"username"`
 		}{}
-		err := w.db.accounts.Find(bson.M{"username": username}).One(&foundAcc)
+		queryAcc := bson.M{"username": username}
+		selectAcc := bson.M{"username": 1}
+		err := w.db.accounts.Find(queryAcc).Select(selectAcc).One(&foundAcc)
 		if err != nil && err != mgo.ErrNotFound {
 			panic(err)
 		} else if foundAcc.Username == username {
