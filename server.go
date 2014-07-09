@@ -68,11 +68,13 @@ func (conn *wsConn) readRun(hub *WsHub) {
 	defer func() {
 		hub.unregister <- conn
 		conn.ws.Close()
-		char := acc.UsingChar()
-		if acc != nil && char != nil {
-			char.Logout()
-		} else if acc != nil {
-			acc.Logout()
+		if acc != nil {
+			char := acc.UsingChar()
+			if char == nil {
+				acc.Logout()
+			} else {
+				char.Logout()
+			}
 		}
 	}()
 	conn.ws.SetReadLimit(10240)
@@ -199,7 +201,7 @@ type Server struct {
 }
 
 func NewServer() *Server {
-	w, err := NewWorld("first-server", "127.0.0.1", "dao")
+	w, err := NewWorld("develop", "127.0.0.1", "dao")
 	if err != nil {
 		panic(err)
 	}
@@ -209,7 +211,10 @@ func NewServer() *Server {
 		unregister:  make(chan *wsConn),
 		quit:        make(chan struct{}, 1),
 	}
-	ds := &Server{w, hub}
+	ds := &Server{
+		world: w,
+		wsHub: hub,
+	}
 	hub.server = ds
 	return ds
 }

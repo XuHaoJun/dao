@@ -7,6 +7,10 @@ import (
 	"labix.org/v2/mgo/bson"
 )
 
+type CharClientCall interface {
+	Logout()
+}
+
 type Char struct {
 	*BattleBioBase
 	bsonId      bson.ObjectId
@@ -33,10 +37,6 @@ type CharDumpDB struct {
 	LastScene   *SceneInfo        `bson:"lastScene"`
 	UsingEquips UsingEquipsDumpDB `bson:"usingEquips"`
 	Items       *ItemsDumpDB      `bson:"items"`
-}
-
-type CharClientCall interface {
-	Logout()
 }
 
 func (cDump *CharDumpDB) Load(acc *Account) *Char {
@@ -158,5 +158,6 @@ func (c *Char) Logout() {
 		c.Save()
 		c.account.Logout()
 		c.ShutDown()
+		c.account.world.logger.Println("Char:", c.name, "logouted.")
 	}
 }

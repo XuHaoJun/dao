@@ -1,6 +1,9 @@
 package dao
 
 import (
+	"log"
+	"os"
+
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 )
@@ -11,11 +14,13 @@ type World struct {
 	scenes   map[string]*Scene
 	db       *DaoDB
 	configs  *WorldConfigs
+	logger   *log.Logger
 	job      chan func()
 	quit     chan struct{}
 }
 
 type WorldConfigs struct {
+	maxChars     int
 	maxCharItems int
 }
 
@@ -35,7 +40,8 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		accounts: make(map[string]*Account),
 		scenes:   make(map[string]*Scene),
 		db:       db,
-		configs:  &WorldConfigs{40},
+		configs:  &WorldConfigs{5, 40},
+		logger:   log.New(os.Stdout, "[dao-"+name+"] ", 0),
 		job:      make(chan func(), 512),
 		quit:     make(chan struct{}, 1),
 	}
@@ -98,6 +104,7 @@ func (w *World) RegisterAccount(username string, password string) {
 		} else if err == mgo.ErrNotFound {
 			acc := NewAccount(username, password, w)
 			acc.DoSaveByWorldDB()
+			w.logger.Println(acc.username, "Registered.")
 			// TODO
 			// Update client screen
 		}
@@ -125,6 +132,7 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 		}
 		acc := foundAcc.Load(w)
 		w.accounts[acc.username] = acc
+		w.logger.Println("Account:", acc.username, "Logined.")
 		acc.Login(sock)
 		accC <- acc
 	}

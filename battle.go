@@ -2,6 +2,7 @@ package dao
 
 type BattleInfo struct {
 	isDied bool
+	pos    Pos
 	level  int
 	hp     int
 	maxHp  int

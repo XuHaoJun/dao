@@ -141,10 +141,11 @@ func (a *Account) LoginChar(charSlot int) {
 	a.job <- func() {
 		checkRange := charSlot >= 0 && charSlot < len(a.chars)
 		if a.isOnline == false ||
-			checkRange ||
+			checkRange == false ||
 			a.usingChar != nil {
 			return
 		}
+		a.world.logger.Println(a.usingChar.name, "Logined.")
 		a.usingChar = a.chars[charSlot]
 		a.usingChar.Login()
 	}
@@ -174,6 +175,11 @@ func (a *Account) CreateChar(name string) {
 		if a.isOnline == false {
 			return
 		}
+		if len(a.chars) >= a.world.Configs().maxChars {
+			// TODO
+			// return error message to client
+			return
+		}
 		foundChar := struct{ Name string }{}
 		queryChar := bson.M{"chars": bson.M{"$elemMatch": bson.M{"name": name}}}
 		selectChar := bson.M{"name": 1}
@@ -190,6 +196,9 @@ func (a *Account) CreateChar(name string) {
 			char.slotIndex = len(a.chars)
 			a.chars = append(a.chars, char)
 			char.DoSaveByAccountDB()
+			a.world.logger.Println("Account:", a.username,
+				"created a new char:",
+				char.name+".")
 			// TODO
 			// Update client screen
 		}
@@ -201,12 +210,10 @@ func (a *Account) Logout() {
 		if a.isOnline == false {
 			return
 		}
-		if a.usingChar != nil {
-			a.usingChar.Logout()
-		}
 		a.world.LogoutAccount(a.username)
 		a.Save()
 		a.ShutDown()
+		a.world.logger.Println("Account:", a.username, "logouted.")
 		// TODO
 		// 1. update client to selecting char screen.
 		// 2. close socket connection close(a.sock.send)
