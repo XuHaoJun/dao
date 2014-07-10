@@ -116,6 +116,8 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 	w.job <- func() {
 		_, ok := w.accounts[username]
 		if ok {
+			// TODO
+			// update error to client duplicate account login
 			close(accC)
 			return
 		}

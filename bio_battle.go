@@ -94,6 +94,33 @@ func NewBattleBioBase() *BattleBioBase {
 	return b
 }
 
+func (b *BattleBioBase) Run() {
+	for {
+		select {
+		case job, ok := <-b.job:
+			if !ok {
+				return
+			}
+			job()
+		case <-b.quit:
+			b.quit <- struct{}{}
+			return
+		}
+	}
+}
+
+func (b *BattleBioBase) IsDied() bool {
+	c := make(chan bool, 1)
+	err := b.DoJob(func() {
+		c <- b.isDied
+	})
+	if err != nil {
+		close(c)
+		return true
+	}
+	return <-c
+}
+
 func (b *BattleBioBase) BattleInfo() BattleInfo {
 	battleC := make(chan BattleInfo, 1)
 	b.job <- func() {
@@ -157,6 +184,9 @@ func (b *BattleBioBase) NormalAttack(b2 *BattleBioBase) {
 					dmage = 0
 				}
 				b2.DecHp(dmage)
+				if b2.IsDied() {
+					return
+				}
 			}
 		case <-b.normalAttackState.quit:
 			b.job <- func() {

@@ -2,7 +2,6 @@ package dao
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,10 +14,10 @@ import (
 )
 
 type wsConn struct {
-	ws        *websocket.Conn
-	server    *Server
-	send      chan []byte
-	readEvent func(msg map[string]interface{})
+	ws       *websocket.Conn
+	server   *Server
+	readQuit chan struct{}
+	send     chan []byte
 }
 
 func (conn *wsConn) write(mt int, msg []byte) error {
@@ -39,7 +38,6 @@ func (conn *wsConn) writeRun() {
 	ticker := time.NewTicker(54 * time.Second)
 	defer func() {
 		ticker.Stop()
-		conn.ws.Close()
 	}()
 	for {
 		select {
@@ -63,17 +61,25 @@ func (conn *wsConn) Close() {
 	close(conn.send)
 }
 
+func (conn *wsConn) Send(msg []byte) (err error) {
+	defer handleErrSendCloseChanel(&err)
+	conn.send <- msg
+	return
+}
+
 func (conn *wsConn) readRun(hub *WsHub) {
+	logger := conn.server.world.logger
 	var acc *Account
 	defer func() {
 		hub.unregister <- conn
-		conn.ws.Close()
 		if acc != nil {
-			char := acc.UsingChar()
-			if char == nil {
-				acc.Logout()
-			} else {
-				char.Logout()
+			if conn.server.world.IsOnlineAccount(acc) {
+				char := acc.UsingChar()
+				if char == nil {
+					acc.Logout()
+				} else {
+					char.Logout()
+				}
 			}
 		}
 	}()
@@ -97,11 +103,11 @@ ReadLoop:
 		clientCall := &ClientCall{}
 		err = json.Unmarshal(msg, clientCall)
 		if err != nil {
-			fmt.Println(string(msg))
-			fmt.Println("can't parse json")
+			logger.Println(string(msg))
+			logger.Println("can't parse json")
 			continue ReadLoop
 		}
-		fmt.Println(clientCall)
+		logger.Println(clientCall)
 		switch clientCall.Receiver {
 		case "World":
 			if acc != nil {
@@ -142,6 +148,9 @@ ReadLoop:
 				continue ReadLoop
 			}
 			f.Call(in)
+			if clientCall.Method == "Logout" {
+				break ReadLoop
+			}
 		case "Char":
 			if acc == nil {
 				continue ReadLoop
@@ -149,6 +158,19 @@ ReadLoop:
 			char := acc.UsingChar()
 			if char == nil {
 				continue ReadLoop
+			}
+			v := char.CharClientCall()
+			f := reflect.ValueOf(v).MethodByName(clientCall.Method)
+			if f.IsNil() {
+				continue ReadLoop
+			}
+			in, err := clientCall.CastJSON(f)
+			if err != nil {
+				continue ReadLoop
+			}
+			f.Call(in)
+			if clientCall.Method == "Logout" {
+				break ReadLoop
 			}
 		default:
 			continue ReadLoop
@@ -168,21 +190,15 @@ func (hub *WsHub) Run() {
 	for {
 		select {
 		case conn := <-hub.register:
-			// TODO
-			// should connect with my game
-			fmt.Printf("hub register %s\n", conn.ws.RemoteAddr())
 			hub.connections[conn] = struct{}{}
 		case conn := <-hub.unregister:
-			// TODO
-			// should connect with my game
-			fmt.Printf("hub unregister %s\n", conn.ws.RemoteAddr())
 			delete(hub.connections, conn)
 			close(conn.send)
 		case <-hub.quit:
 			// TODO
 			// should connect with my game
 			for conn, _ := range hub.connections {
-				close(conn.send)
+				conn.Close()
 			}
 			hub.quit <- struct{}{}
 			return

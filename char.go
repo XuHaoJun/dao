@@ -23,6 +23,7 @@ type Char struct {
 	isOnline    bool
 	sock        *wsConn
 	lastScene   *SceneInfo
+	saveScene   *SceneInfo
 }
 
 type CharDumpDB struct {
@@ -35,6 +36,7 @@ type CharDumpDB struct {
 	Wis         int               `bson:"wis"`
 	Spi         int               `bson:"spi"`
 	LastScene   *SceneInfo        `bson:"lastScene"`
+	SaveScene   *SceneInfo        `bson:"saveScene"`
 	UsingEquips UsingEquipsDumpDB `bson:"usingEquips"`
 	Items       *ItemsDumpDB      `bson:"items"`
 }
@@ -48,6 +50,7 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.wis = cDump.Wis
 	c.spi = cDump.Spi
 	c.lastScene = cDump.LastScene
+	c.saveScene = cDump.SaveScene
 	c.items = cDump.Items.Load()
 	c.usingEquips = cDump.UsingEquips.Load()
 	return c
@@ -63,6 +66,7 @@ func NewChar(name string, acc *Account) *Char {
 		account:       acc,
 		world:         acc.world,
 		sock:          acc.sock,
+		saveScene:     &SceneInfo{"daoCity", 0, 0},
 	}
 	c.name = name
 	c.level = 1
@@ -73,7 +77,13 @@ func NewChar(name string, acc *Account) *Char {
 	return c
 }
 
+func (c *Char) CharClientCall() CharClientCall {
+	return c
+}
+
 func (c *Char) Run() {
+	// c.job = make(chan func(), 512)
+	// c.quit = make(chan struct{}, 1)
 	c.db = c.account.world.DB().CloneSession()
 	defer c.db.session.Close()
 	for {
@@ -84,6 +94,8 @@ func (c *Char) Run() {
 			}
 			job()
 		case <-c.quit:
+			c.isOnline = false
+			close(c.job)
 			c.quit <- struct{}{}
 			return
 		}
@@ -108,9 +120,9 @@ func (c *Char) DoSave() {
 }
 
 func (c *Char) Save() {
-	c.job <- func() {
+	c.DoJob(func() {
 		c.DoSave()
-	}
+	})
 }
 
 func (c *Char) DumpDB() *CharDumpDB {
@@ -126,6 +138,7 @@ func (c *Char) DumpDB() *CharDumpDB {
 		Items:       c.items.DumpDB(),
 		UsingEquips: c.usingEquips.DumpDB(),
 		LastScene:   nil,
+		SaveScene:   c.saveScene,
 	}
 	if c.scene != nil {
 		cDump.LastScene = &SceneInfo{c.scene.name, c.pos.x, c.pos.y}
@@ -137,27 +150,40 @@ func (c *Char) DumpDB() *CharDumpDB {
 
 func (c *Char) Login() {
 	go c.Run()
-	c.job <- func() {
-		c.isOnline = true
-		scene := c.world.FindSceneByName(c.lastScene.Name)
-		if scene == nil {
-			// TODO
-			// imple saveScene on char
-			// c.world.FindSceneByName(c.saveScene.Name)
+	c.DoJob(func() {
+		if c.isOnline == true {
 			return
 		}
+		c.isOnline = true
+		var scene *Scene
+		lastScene := c.world.FindSceneByName(c.lastScene.Name)
+		if lastScene == nil {
+			saveScene := c.world.FindSceneByName(c.saveScene.Name)
+			if saveScene == nil {
+				c.saveScene = &SceneInfo{"daoCity", 0, 0}
+				scene = c.world.FindSceneByName(c.saveScene.Name)
+			} else {
+				scene = saveScene
+			}
+		} else {
+			scene = lastScene
+		}
 		scene.AddBio(c)
-	}
+		logger := c.account.world.logger
+		logger.Println("Char:", c.name, "logined.")
+	})
 }
 
 func (c *Char) Logout() {
-	c.job <- func() {
+	c.DoJob(func() {
 		if c.isOnline == false {
 			return
 		}
-		c.Save()
+		c.isOnline = false
+		// c.Save()
+		// account will save all chars on logout
 		c.account.Logout()
 		c.ShutDown()
 		c.account.world.logger.Println("Char:", c.name, "logouted.")
-	}
+	})
 }

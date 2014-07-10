@@ -16,6 +16,7 @@ type ClientCall struct {
 // {"receiver": "Account", "method": "Logout", "params": []}
 // {"receiver": "Account", "method": "CreateChar", "params": ["dodo"]}
 // {"receiver": "Account", "method": "LoginChar", "params": [0]}
+// {"receiver": "Char", "method": "Logout", "params": []}
 
 func (c *ClientCall) CastJSON(f reflect.Value) ([]reflect.Value, error) {
 	numIn := f.Type().NumIn()

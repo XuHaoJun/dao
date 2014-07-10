@@ -6,17 +6,18 @@ import (
 )
 
 type Account struct {
-	bsonId    bson.ObjectId
-	username  string
-	password  string
-	world     *World
-	chars     []*Char
-	usingChar *Char
-	isOnline  bool
-	db        *DaoDB
-	sock      *wsConn
-	job       chan func()
-	quit      chan struct{}
+	bsonId     bson.ObjectId
+	username   string
+	password   string
+	world      *World
+	chars      []*Char
+	usingChar  *Char
+	isOnline   bool
+	db         *DaoDB
+	sock       *wsConn
+	job        chan func()
+	quit       chan struct{}
+	isShutDown bool
 }
 
 type AccountClientCall interface {
@@ -44,20 +45,27 @@ func (aDump *AccountDumpDB) Load(w *World) *Account {
 
 func NewAccount(username string, password string, w *World) *Account {
 	a := &Account{
-		bsonId:   bson.NewObjectId(),
-		username: username,
-		password: password,
-		world:    w,
-		chars:    []*Char{},
-		isOnline: false,
-		job:      make(chan func(), 128),
-		quit:     make(chan struct{}, 1),
+		bsonId:     bson.NewObjectId(),
+		username:   username,
+		password:   password,
+		world:      w,
+		chars:      []*Char{},
+		isOnline:   false,
+		job:        make(chan func(), 128),
+		quit:       make(chan struct{}, 1),
+		isShutDown: false,
 	}
 	return a
 }
 
 func (a *Account) AccountClientCall() AccountClientCall {
 	return a
+}
+
+func (a *Account) DoJob(job func()) (err error) {
+	defer handleErrSendCloseChanel(&err)
+	a.job <- job
+	return
 }
 
 func (a *Account) Run() {
@@ -71,6 +79,9 @@ func (a *Account) Run() {
 			}
 			job()
 		case <-a.quit:
+			close(a.job)
+			a.isShutDown = true
+			a.isOnline = false
 			a.quit <- struct{}{}
 			return
 		}
@@ -82,10 +93,21 @@ func (a *Account) ShutDown() {
 	<-a.quit
 }
 
+func (a *Account) Restart() {
+	if a.isShutDown {
+		a.isShutDown = false
+		a.Run()
+	}
+}
+
 func (a *Account) DB() *DaoDB {
 	dbC := make(chan *DaoDB, 1)
-	a.job <- func() {
+	err := a.DoJob(func() {
 		dbC <- a.db
+	})
+	if err != nil {
+		close(dbC)
+		return nil
 	}
 	return <-dbC
 }
@@ -105,17 +127,15 @@ func (a *Account) DoSave() {
 }
 
 func (a *Account) Save() {
-	a.job <- func() {
+	a.DoJob(func() {
 		a.DoSave()
-	}
+	})
 }
 
 func (a *Account) DumpDB() *AccountDumpDB {
 	chars := make([]*CharDumpDB, len(a.chars))
-	ci := 0
-	for _, char := range a.chars {
-		chars[ci] = char.DumpDB()
-		ci++
+	for i, char := range a.chars {
+		chars[i] = char.DumpDB()
 	}
 	return &AccountDumpDB{
 		Id:       a.bsonId,
@@ -127,51 +147,61 @@ func (a *Account) DumpDB() *AccountDumpDB {
 
 func (a *Account) IsSelectingChar() bool {
 	c := make(chan bool, 1)
-	a.job <- func() {
+	err := a.DoJob(func() {
 		if a.isOnline && a.usingChar == nil {
 			c <- true
 		} else {
 			c <- false
 		}
+	})
+	if err != nil {
+		close(c)
+		return false
 	}
 	return <-c
 }
 
 func (a *Account) LoginChar(charSlot int) {
-	a.job <- func() {
+	a.DoJob(func() {
 		checkRange := charSlot >= 0 && charSlot < len(a.chars)
 		if a.isOnline == false ||
 			checkRange == false ||
 			a.usingChar != nil {
 			return
 		}
-		a.world.logger.Println(a.usingChar.name, "Logined.")
 		a.usingChar = a.chars[charSlot]
 		a.usingChar.Login()
-	}
+	})
 }
 
 func (a *Account) Login(sock *wsConn) {
 	go a.Run()
-	a.job <- func() {
+	a.DoJob(func() {
+		if a.isOnline == true {
+			return
+		}
 		a.isOnline = true
 		a.Save()
 		a.sock = sock
 		// TODO
 		// update client to selecting char screen
-	}
+	})
 }
 
 func (a *Account) UsingChar() *Char {
 	cC := make(chan *Char, 1)
-	a.job <- func() {
+	err := a.DoJob(func() {
 		cC <- a.usingChar
+	})
+	if err != nil {
+		close(cC)
+		return nil
 	}
 	return <-cC
 }
 
 func (a *Account) CreateChar(name string) {
-	a.job <- func() {
+	a.DoJob(func() {
 		if a.isOnline == false {
 			return
 		}
@@ -202,20 +232,20 @@ func (a *Account) CreateChar(name string) {
 			// TODO
 			// Update client screen
 		}
-	}
+	})
 }
 
 func (a *Account) Logout() {
-	a.job <- func() {
+	a.DoJob(func() {
 		if a.isOnline == false {
 			return
 		}
+		a.isOnline = false
 		a.world.LogoutAccount(a.username)
 		a.Save()
 		a.ShutDown()
 		a.world.logger.Println("Account:", a.username, "logouted.")
 		// TODO
 		// 1. update client to selecting char screen.
-		// 2. close socket connection close(a.sock.send)
-	}
+	})
 }
