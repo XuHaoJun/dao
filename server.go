@@ -103,11 +103,10 @@ ReadLoop:
 		clientCall := &ClientCall{}
 		err = json.Unmarshal(msg, clientCall)
 		if err != nil {
-			logger.Println(string(msg))
-			logger.Println("can't parse json")
+			logger.Println(conn.ws.RemoteAddr(), ": can't parse to json:", string(msg))
 			continue ReadLoop
 		}
-		logger.Println(clientCall)
+		logger.Println(conn.ws.RemoteAddr(), "call:", clientCall)
 		switch clientCall.Receiver {
 		case "World":
 			if acc != nil {
