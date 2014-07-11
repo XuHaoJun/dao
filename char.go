@@ -9,6 +9,7 @@ import (
 
 type CharClientCall interface {
 	Logout()
+	NormalAttackByMid(mid int)
 }
 
 type Char struct {
@@ -74,6 +75,7 @@ func NewChar(name string, acc *Account) *Char {
 	c.vit = 1
 	c.wis = 1
 	c.spi = 1
+	c.OnKill = c.OnKillFunc()
 	return c
 }
 
@@ -95,6 +97,9 @@ func (c *Char) Run() {
 			job()
 		case <-c.quit:
 			c.isOnline = false
+			if c.scene != nil {
+				c.scene.DeleteBio(c)
+			}
 			close(c.job)
 			c.quit <- struct{}{}
 			return
@@ -141,7 +146,11 @@ func (c *Char) DumpDB() *CharDumpDB {
 		SaveScene:   c.saveScene,
 	}
 	if c.scene != nil {
-		cDump.LastScene = &SceneInfo{c.scene.name, c.pos.x, c.pos.y}
+		cDump.LastScene = &SceneInfo{
+			c.scene.name,
+			float32(c.body.Position().X),
+			float32(c.body.Position().Y),
+		}
 	} else {
 		cDump.LastScene = &SceneInfo{"daoCity", 0.0, 0.0}
 	}
@@ -174,16 +183,87 @@ func (c *Char) Login() {
 	})
 }
 
+func (c *Char) NormalAttackByMid(mid int) {
+	c.DoJob(func() {
+		if mid < 0 {
+			return
+		}
+		mob := c.scene.FindMobById(mid)
+		if mob == nil {
+			return
+		}
+		c.NormalAttack(mob)
+	})
+}
+
 func (c *Char) Logout() {
 	c.DoJob(func() {
 		if c.isOnline == false {
 			return
 		}
 		c.isOnline = false
-		// c.Save()
-		// account will save all chars on logout
+		c.DoSave()
 		c.account.Logout()
 		c.ShutDown()
 		c.account.world.logger.Println("Char:", c.name, "logouted.")
 	})
+}
+
+func (c *Char) DoAddItem(itemer Itemer) {
+	switch item := itemer.(type) {
+	case *EtcItem:
+		for i, eitem := range c.items.etcItem {
+			if eitem == nil {
+				c.items.etcItem[i] = item
+				break
+			}
+		}
+	case *Equipment:
+		for i, eitem := range c.items.equipment {
+			if eitem == nil {
+				c.items.equipment[i] = item
+				break
+			}
+		}
+	case *UseSelfItem:
+		for i, uitem := range c.items.useSelfItem {
+			if uitem == nil {
+				c.items.useSelfItem[i] = item
+				break
+			}
+		}
+	}
+}
+
+func (c *Char) AddItem(itemer Itemer) {
+	c.DoJob(func() {
+		c.DoAddItem(itemer)
+	})
+}
+
+func (c *Char) PickItem(itemer Itemer) {
+	c.DoJob(func() {
+		itemer.Lock()
+		if itemer.Scene() == nil {
+			itemer.Unlock()
+			return
+		}
+		c.DoAddItem(itemer)
+		// itemer.Scene().RemoveItem(itemer)
+		itemer.Unlock()
+	})
+}
+
+func (c *Char) PickEtcItemById(id int) {
+	c.DoJob(func() {
+		if id < 0 {
+			return
+		}
+	})
+}
+
+func (c *Char) OnKillFunc() func(target BattleBioer) {
+	return func(target BattleBioer) {
+		// for quest check or add zeny
+	}
 }

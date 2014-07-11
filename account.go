@@ -6,18 +6,17 @@ import (
 )
 
 type Account struct {
-	bsonId     bson.ObjectId
-	username   string
-	password   string
-	world      *World
-	chars      []*Char
-	usingChar  *Char
-	isOnline   bool
-	db         *DaoDB
-	sock       *wsConn
-	job        chan func()
-	quit       chan struct{}
-	isShutDown bool
+	bsonId    bson.ObjectId
+	username  string
+	password  string
+	world     *World
+	chars     []*Char
+	usingChar *Char
+	isOnline  bool
+	db        *DaoDB
+	sock      *wsConn
+	job       chan func()
+	quit      chan struct{}
 }
 
 type AccountClientCall interface {
@@ -45,15 +44,14 @@ func (aDump *AccountDumpDB) Load(w *World) *Account {
 
 func NewAccount(username string, password string, w *World) *Account {
 	a := &Account{
-		bsonId:     bson.NewObjectId(),
-		username:   username,
-		password:   password,
-		world:      w,
-		chars:      []*Char{},
-		isOnline:   false,
-		job:        make(chan func(), 128),
-		quit:       make(chan struct{}, 1),
-		isShutDown: false,
+		bsonId:   bson.NewObjectId(),
+		username: username,
+		password: password,
+		world:    w,
+		chars:    []*Char{},
+		isOnline: false,
+		job:      make(chan func(), 128),
+		quit:     make(chan struct{}, 1),
 	}
 	return a
 }
@@ -80,7 +78,6 @@ func (a *Account) Run() {
 			job()
 		case <-a.quit:
 			close(a.job)
-			a.isShutDown = true
 			a.isOnline = false
 			a.quit <- struct{}{}
 			return
@@ -91,13 +88,6 @@ func (a *Account) Run() {
 func (a *Account) ShutDown() {
 	a.quit <- struct{}{}
 	<-a.quit
-}
-
-func (a *Account) Restart() {
-	if a.isShutDown {
-		a.isShutDown = false
-		a.Run()
-	}
 }
 
 func (a *Account) DB() *DaoDB {
@@ -242,7 +232,6 @@ func (a *Account) Logout() {
 		}
 		a.isOnline = false
 		a.world.LogoutAccount(a.username)
-		a.Save()
 		a.ShutDown()
 		a.world.logger.Println("Account:", a.username, "logouted.")
 		// TODO

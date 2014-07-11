@@ -2,7 +2,18 @@ package dao
 
 import (
 	"labix.org/v2/mgo/bson"
+	"sync"
 )
+
+type Itemer interface {
+	Name() string
+	Id() int
+	AgeisName() string
+	IconViewId() int
+	Scene() *Scene
+	Lock()
+	Unlock()
+}
 
 type Item struct {
 	id         int
@@ -10,6 +21,36 @@ type Item struct {
 	name       string
 	ageisName  string
 	iconViewId int
+	mutex      *sync.Mutex
+	scene      *Scene
+}
+
+func (i *Item) Name() string {
+	return i.name
+}
+
+func (i *Item) Id() int {
+	return i.id
+}
+
+func (i *Item) AgeisName() string {
+	return i.ageisName
+}
+
+func (i *Item) IconViewId() int {
+	return i.iconViewId
+}
+
+func (i *Item) Scene() *Scene {
+	return i.scene
+}
+
+func (i *Item) Lock() {
+	i.mutex.Lock()
+}
+
+func (i *Item) Unlock() {
+	i.mutex.Unlock()
 }
 
 type Equipment struct {
@@ -40,6 +81,8 @@ func (e *EquipmentDumpDB) Load() *Equipment {
 			name:       e.Name,
 			ageisName:  e.AgeisName,
 			iconViewId: e.IconViewId,
+			scene:      nil,
+			mutex:      &sync.Mutex{},
 		},
 		bonus:       e.Bonus.Load(),
 		etype:       e.Etype,

@@ -67,6 +67,9 @@ func (w *World) Run() {
 			for _, acc := range w.accounts {
 				acc.Logout()
 			}
+			for _, scene := range w.scenes {
+				scene.ShutDown()
+			}
 			w.quit <- struct{}{}
 			return
 		}

@@ -9,15 +9,16 @@ type Pos struct {
 	y float32
 }
 
-// TODO
-// imple grid way
 type Scene struct {
-	name  string
-	mobs  map[int]*Mob
-	npcs  map[int]*Npc
-	chars map[int]*Char
-	job   chan func()
-	quit  chan struct{}
+	name         string
+	mobs         map[int]*Mob
+	npcs         map[int]*Npc
+	chars        map[int]*Char
+	etcItems     map[int]*EtcItem
+	equipments   map[int]*Equipment
+	useSelfItems map[int]*UseSelfItem
+	job          chan func()
+	quit         chan struct{}
 }
 
 type SceneInfo struct {
@@ -46,6 +47,7 @@ func (s *Scene) Run() {
 			}
 			job()
 		case <-s.quit:
+			close(s.job)
 			s.quit <- struct{}{}
 			return
 		}
@@ -57,8 +59,61 @@ func (s *Scene) ShutDown() {
 	<-s.quit
 }
 
+func (s *Scene) DoJob(job func()) (err error) {
+	defer handleErrSendCloseChanel(&err)
+	s.job <- job
+	return
+}
+
+func (s *Scene) FindMobById(mid int) *Mob {
+	mobC := make(chan *Mob, 1)
+	err := s.DoJob(func() {
+		mob, ok := s.mobs[mid]
+		if !ok || mob == nil {
+			close(mobC)
+		}
+		mobC <- mob
+	})
+	if err != nil {
+		close(mobC)
+		return nil
+	}
+	mob, ok := <-mobC
+	if !ok {
+		return nil
+	}
+	return mob
+}
+
+func (s *Scene) DeleteBio(b SceneBioer) {
+	s.DoJob(func() {
+		switch b.(type) {
+		case *Mob:
+			mob := b.(*Mob)
+			mid := mob.id
+			s.mobs[mid] = nil
+			mob.SetId(0)
+			mob.SetScene(nil)
+		case *Npc:
+			npc := b.(*Npc)
+			nid := npc.id
+			s.npcs[nid] = nil
+			npc.SetId(0)
+			npc.SetScene(nil)
+		case *Char:
+			char := b.(*Char)
+			cid := char.id
+			s.chars[cid] = nil
+			char.SetId(0)
+			char.SetScene(nil)
+		default:
+			fmt.Println("you should never look this line.")
+		}
+	})
+}
+
 func (s *Scene) AddBio(b SceneBioer) {
-	s.job <- func() {
+	s.DoJob(func() {
 		switch b.(type) {
 		case *Mob:
 			mob := b.(*Mob)
@@ -79,7 +134,10 @@ func (s *Scene) AddBio(b SceneBioer) {
 			char.SetId(cid)
 			char.SetScene(s)
 		default:
-			fmt.Println("you should look the line.")
+			fmt.Println("you should never look this line.")
 		}
-	}
+	})
+}
+
+func (s *Scene) AddItem(i Itemer) {
 }

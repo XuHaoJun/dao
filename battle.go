@@ -1,8 +1,12 @@
 package dao
 
+import (
+	"github.com/vova616/chipmunk"
+)
+
 type BattleInfo struct {
 	isDied bool
-	pos    Pos
+	body   *chipmunk.Body
 	level  int
 	hp     int
 	maxHp  int

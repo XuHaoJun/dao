@@ -1,6 +1,9 @@
 package dao
 
-import ()
+import (
+	"github.com/vova616/chipmunk"
+	"github.com/vova616/chipmunk/vect"
+)
 
 type Bioer interface {
 	Name() string
@@ -28,8 +31,8 @@ type SceneBioer interface {
 type BioBase struct {
 	id         int
 	name       string
+	body       *chipmunk.Body
 	bodyViewId int
-	pos        Pos
 	scene      *Scene
 	// equipItem map[*Item]struct{}
 	// items map[]
@@ -38,10 +41,15 @@ type BioBase struct {
 }
 
 func NewBioBase() *BioBase {
+	body := chipmunk.NewBody(1, 1)
+	circle := chipmunk.NewCircle(vect.Vector_Zero, float32(32.0))
+	circle.IsSensor = true
+	body.SetPosition(vect.Vector_Zero)
+	body.AddShape(circle)
 	return &BioBase{
 		name:       "",
 		bodyViewId: 0,
-		pos:        Pos{0.0, 0.0},
+		body:       body,
 		scene:      nil,
 		job:        make(chan func(), 512),
 		quit:       make(chan struct{}, 1),
@@ -60,6 +68,9 @@ func (b *BioBase) Run() {
 			job()
 		case <-b.quit:
 			close(b.job)
+			if b.scene != nil {
+				b.scene.DeleteBio(b)
+			}
 			b.quit <- struct{}{}
 			return
 		}
@@ -110,7 +121,8 @@ func (b *BioBase) SetScene(s *Scene) {
 func (b *BioBase) X() float32 {
 	xC := make(chan float32, 1)
 	err := b.DoJob(func() {
-		xC <- b.pos.x
+		pos := b.body.Position()
+		xC <- float32(pos.X)
 	})
 	if err != nil {
 		close(xC)
@@ -121,14 +133,17 @@ func (b *BioBase) X() float32 {
 
 func (b *BioBase) SetX(x float32) {
 	b.DoJob(func() {
-		b.pos.x = x
+		newPos := b.body.Position()
+		newPos.X = vect.Float(x)
+		b.body.SetPosition(newPos)
 	})
 }
 
 func (b *BioBase) Y() float32 {
 	yC := make(chan float32, 1)
 	err := b.DoJob(func() {
-		yC <- b.pos.y
+		pos := b.body.Position()
+		yC <- float32(pos.Y)
 	})
 	if err != nil {
 		close(yC)
@@ -139,14 +154,17 @@ func (b *BioBase) Y() float32 {
 
 func (b *BioBase) SetY(y float32) {
 	b.DoJob(func() {
-		b.pos.y = y
+		newPos := b.body.Position()
+		newPos.Y = vect.Float(y)
+		b.body.SetPosition(newPos)
 	})
 }
 
 func (b *BioBase) Pos() Pos {
 	posC := make(chan Pos, 1)
 	err := b.DoJob(func() {
-		posC <- b.pos
+		pos := b.body.Position()
+		posC <- Pos{float32(pos.X), float32(pos.Y)}
 	})
 	if err != nil {
 		close(posC)
@@ -157,8 +175,23 @@ func (b *BioBase) Pos() Pos {
 
 func (b *BioBase) SetPos(p Pos) {
 	b.DoJob(func() {
-		b.pos = p
+		x := vect.Float(p.x)
+		y := vect.Float(p.y)
+		pos := vect.Vect{X: x, Y: y}
+		b.body.SetPosition(pos)
 	})
+}
+
+func (b *BioBase) Body() *chipmunk.Body {
+	bodyC := make(chan *chipmunk.Body, 1)
+	err := b.DoJob(func() {
+		bodyC <- b.body.Clone()
+	})
+	if err != nil {
+		close(bodyC)
+		return nil
+	}
+	return <-bodyC
 }
 
 func (b *BioBase) SetId(id int) {

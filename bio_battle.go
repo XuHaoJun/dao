@@ -2,66 +2,55 @@ package dao
 
 import (
 	"time"
+
+	"github.com/vova616/chipmunk"
+	"github.com/vova616/chipmunk/vect"
 )
 
 type BattleBioer interface {
 	// states
-	BattleInfo() BattleInfo
-	IsDied() bool
+	BattleInfo() *BattleInfo
 	Level() int
-	Str() int
-	SetStr(int)
-	Vit() int
-	SetVit(int)
-	Wis() int
-	SetWis(int)
-	Spi() int
-	SetSpi(int)
-	Def() int
-	SetDef() int
-	Mdef() int
-	SetMdef() int
-	Atk() int
-	SetAtk() int
-	Matk() int
-	DecHp(int)
-	SetMatk() int
-	Hp() int
-	MaxHp() int
-	SetMaxHp() int
-	Mp()
-	MaxMp() int
+	IsDied() bool
+	DecHp(int) bool
 	DecMp(int)
-	SetMaxMp() int
+	// callbacks
+	OnBeKilledFunc() func()
+	OnKillFunc() func(target BattleBioer)
 	// skills
-	NormalAttack(b2 *BattleBioBase)
-	// about items
-	// Equip(item *Item)
-	// UnEquip(itme)
+	NormalAttack(b2 BattleBioer)
+	ShutDownNormalAttack()
 }
 
 // BattleBioBase imple Bioer, SceneBioer, BattleBioer
 type BattleBioBase struct {
 	*BioBase
-	level             int
-	isDied            bool
-	str               int
-	vit               int
-	wis               int
-	spi               int
-	def               int
-	mdef              int
-	atk               int
-	matk              int
-	maxHp             int
-	hp                int
-	maxMp             int
-	mp                int
+	level  int
+	isDied bool
+	// main attribue
+	str int
+	vit int
+	wis int
+	spi int
+	// sub attribue
+	def   int
+	mdef  int
+	atk   int
+	matk  int
+	maxHp int
+	hp    int
+	maxMp int
+	mp    int
+	// callbacks
+	OnKill     func(target BattleBioer)
+	OnBeKilled func()
+	// skills
 	normalAttackState *NormalAttackState
 }
 
 type NormalAttackState struct {
 	attackVelocity time.Duration
+	attackRadius   float32
 	running        bool
 	quit           chan struct{}
 }
@@ -88,9 +77,12 @@ func NewBattleBioBase() *BattleBioBase {
 	// may be not use 2 sec for slowest attack velocity
 	b.normalAttackState = &NormalAttackState{
 		attackVelocity: 2 * time.Second,
+		attackRadius:   2.0,
 		running:        false,
-		quit:           make(chan struct{}),
+		quit:           make(chan struct{}, 1),
 	}
+	b.OnKill = b.OnKillFunc()
+	b.OnBeKilled = b.OnBeKilledFunc()
 	return b
 }
 
@@ -109,6 +101,18 @@ func (b *BattleBioBase) Run() {
 	}
 }
 
+func (b *BattleBioBase) Level() int {
+	levelC := make(chan int, 1)
+	err := b.DoJob(func() {
+		levelC <- b.level
+	})
+	if err != nil {
+		close(levelC)
+		return 0
+	}
+	return <-levelC
+}
+
 func (b *BattleBioBase) IsDied() bool {
 	c := make(chan bool, 1)
 	err := b.DoJob(func() {
@@ -121,12 +125,12 @@ func (b *BattleBioBase) IsDied() bool {
 	return <-c
 }
 
-func (b *BattleBioBase) BattleInfo() BattleInfo {
-	battleC := make(chan BattleInfo, 1)
-	b.job <- func() {
-		battleC <- BattleInfo{
+func (b *BattleBioBase) BattleInfo() *BattleInfo {
+	battleC := make(chan *BattleInfo, 1)
+	err := b.DoJob(func() {
+		battleC <- &BattleInfo{
 			isDied: b.isDied,
-			pos:    b.Pos(),
+			body:   b.body.Clone(),
 			level:  b.level,
 			hp:     b.hp,
 			maxHp:  b.maxHp,
@@ -141,13 +145,19 @@ func (b *BattleBioBase) BattleInfo() BattleInfo {
 			def:    b.def,
 			mdef:   b.mdef,
 		}
+	})
+	if err != nil {
+		close(battleC)
+		return nil
 	}
 	return <-battleC
 }
 
-func (b *BattleBioBase) DecHp(n int) {
-	b.job <- func() {
+func (b *BattleBioBase) DecHp(n int) bool {
+	killedC := make(chan bool, 1)
+	err := b.DoJob(func() {
 		if b.hp <= 0 {
+			killedC <- false
 			return
 		}
 		tmpHp := b.hp
@@ -155,44 +165,139 @@ func (b *BattleBioBase) DecHp(n int) {
 		if tmpHp < 0 {
 			b.hp = 0
 			b.isDied = true
+			f := b.OnBeKilledFunc()
+			f()
+			killedC <- true
 		} else {
 			b.hp = tmpHp
+			killedC <- false
+		}
+	})
+	if err != nil {
+		close(killedC)
+		return false
+	}
+	return <-killedC
+}
+
+func (b *BattleBioBase) DecMp(n int) {
+	b.DoJob(func() {
+		if b.mp <= 0 {
+			return
+		}
+		tmpMp := b.mp
+		tmpMp -= n
+		if tmpMp < 0 {
+			b.mp = 0
+		} else {
+			b.mp = tmpMp
+		}
+	})
+}
+
+func (b *BattleBioBase) OnKillFunc() func(target BattleBioer) {
+	return func(target BattleBioer) {}
+}
+
+func (b *BattleBioBase) OnBeKilledFunc() func() {
+	return func() {
+		if b.scene != nil {
+			b.scene.DeleteBio(b)
 		}
 	}
 }
 
-func (b *BattleBioBase) NormalAttack(b2 *BattleBioBase) {
+type NormalAttackCallbacks struct {
+	isOverlap bool
+}
+
+func (na *NormalAttackCallbacks) CollisionEnter(arbiter *chipmunk.Arbiter) bool {
+	na.isOverlap = true
+	return false
+}
+
+func (na *NormalAttackCallbacks) CollisionPreSolve(arbiter *chipmunk.Arbiter) bool {
+	return false
+}
+
+func (na *NormalAttackCallbacks) CollisionPostSolve(arbiter *chipmunk.Arbiter) {}
+
+func (na *NormalAttackCallbacks) CollisionExit(arbiter *chipmunk.Arbiter) {}
+
+func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
+	if b.IsDied() || b2.IsDied() {
+		return
+	}
 	attackVelocityC := make(chan time.Duration, 1)
-	b.job <- func() {
+	err := b.DoJob(func() {
 		b.normalAttackState.running = true
+		// TODO
+		// should detect attack radius from weapon
 		attackVelocityC <- b.normalAttackState.attackVelocity
+	})
+	if err != nil {
+		close(attackVelocityC)
+		return
 	}
 	timeC := time.Tick(<-attackVelocityC)
 	for {
 		select {
 		case <-timeC:
-			b.job <- func() {
+			b.DoJob(func() {
 				// TODO
-				// add attack range check with
+				// add attack radius check with
 				// target's position
 				target := b2.BattleInfo()
 				if target.isDied == true {
+					b.ShutDownNormalAttack()
+					return
+				}
+				space := chipmunk.NewSpace()
+				attackRange := chipmunk.NewBody(1, 1)
+				rangeShape := chipmunk.NewCircle(
+					vect.Vector_Zero,
+					b.normalAttackState.attackRadius)
+				rangeShape.IsSensor = true
+				attackRange.AddShape(rangeShape)
+				attackRange.SetPosition(b.body.Position())
+				check := &NormalAttackCallbacks{false}
+				attackRange.CallbackHandler = check
+				space.AddBody(attackRange)
+				space.AddBody(target.body)
+				space.Step(0.1)
+				if check.isOverlap == false {
+					b.ShutDownNormalAttack()
 					return
 				}
 				dmage := b.atk - target.def
 				if dmage < 0 {
 					dmage = 0
 				}
-				b2.DecHp(dmage)
-				if b2.IsDied() {
+				killed := b2.DecHp(dmage)
+				if killed {
+					f := b.OnKillFunc()
+					f(b2)
+					b.ShutDownNormalAttack()
 					return
 				}
-			}
+				if b2.IsDied() {
+					b.ShutDownNormalAttack()
+					return
+				}
+			})
 		case <-b.normalAttackState.quit:
-			b.job <- func() {
+			b.DoJob(func() {
 				b.normalAttackState.running = false
-			}
+			})
 			return
 		}
 	}
+}
+
+func (b *BattleBioBase) ShutDownNormalAttack() {
+	b.DoJob(func() {
+		if b.normalAttackState.running {
+			b.normalAttackState.quit <- struct{}{}
+		}
+	})
 }
