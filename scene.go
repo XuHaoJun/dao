@@ -10,15 +10,13 @@ type Pos struct {
 }
 
 type Scene struct {
-	name         string
-	mobs         map[int]*Mob
-	npcs         map[int]*Npc
-	chars        map[int]*Char
-	etcItems     map[int]*EtcItem
-	equipments   map[int]*Equipment
-	useSelfItems map[int]*UseSelfItem
-	job          chan func()
-	quit         chan struct{}
+	name  string
+	mobs  map[int]*Mob
+	npcs  map[int]*Npc
+	chars map[int]*Char
+	items map[int]Itemer
+	job   chan func()
+	quit  chan struct{}
 }
 
 type SceneInfo struct {
@@ -33,6 +31,7 @@ func NewScene(name string) *Scene {
 		mobs:  make(map[int]*Mob),
 		npcs:  make(map[int]*Npc),
 		chars: make(map[int]*Char),
+		items: make(map[int]Itemer),
 		job:   make(chan func(), 1024),
 		quit:  make(chan struct{}, 1),
 	}
@@ -139,5 +138,37 @@ func (s *Scene) AddBio(b SceneBioer) {
 	})
 }
 
+func (s *Scene) DeleteItem(item Itemer) {
+	s.DoJob(func() {
+		for i, foundItem := range s.items {
+			if foundItem == item {
+				s.items[i] = nil
+				return
+			}
+		}
+	})
+}
+
 func (s *Scene) AddItem(i Itemer) {
+	s.DoJob(func() {
+		i.SetScene(s)
+		s.items[len(s.items)] = i
+	})
+}
+
+func (s *Scene) FindItemId(id int) Itemer {
+	itemC := make(chan Itemer, 1)
+	err := s.DoJob(func() {
+		item, ok := s.items[id]
+		if !ok {
+			itemC <- nil
+			return
+		}
+		itemC <- item
+	})
+	if err != nil {
+		close(itemC)
+		return nil
+	}
+	return <-itemC
 }

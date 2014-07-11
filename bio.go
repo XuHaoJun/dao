@@ -57,8 +57,6 @@ func NewBioBase() *BioBase {
 }
 
 func (b *BioBase) Run() {
-	b.job = make(chan func(), 512)
-	b.quit = make(chan struct{}, 1)
 	for {
 		select {
 		case job, ok := <-b.job:

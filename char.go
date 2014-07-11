@@ -10,6 +10,7 @@ import (
 type CharClientCall interface {
 	Logout()
 	NormalAttackByMid(mid int)
+	PickItemById(id int)
 }
 
 type Char struct {
@@ -84,8 +85,6 @@ func (c *Char) CharClientCall() CharClientCall {
 }
 
 func (c *Char) Run() {
-	// c.job = make(chan func(), 512)
-	// c.quit = make(chan struct{}, 1)
 	c.db = c.account.world.DB().CloneSession()
 	defer c.db.session.Close()
 	for {
@@ -183,6 +182,13 @@ func (c *Char) Login() {
 	})
 }
 
+func (c *Char) OnKillFunc() func(target BattleBioer) {
+	return func(target BattleBioer) {
+		// for quest check or add zeny when kill
+		// mob, ok := target.(*Mob)
+	}
+}
+
 func (c *Char) NormalAttackByMid(mid int) {
 	c.DoJob(func() {
 		if mid < 0 {
@@ -241,29 +247,29 @@ func (c *Char) AddItem(itemer Itemer) {
 	})
 }
 
-func (c *Char) PickItem(itemer Itemer) {
+func (c *Char) PickItem(item Itemer) {
 	c.DoJob(func() {
-		itemer.Lock()
-		if itemer.Scene() == nil {
-			itemer.Unlock()
+		item.Lock()
+		defer item.Unlock()
+		if item.GetScene() == nil {
 			return
 		}
-		c.DoAddItem(itemer)
-		// itemer.Scene().RemoveItem(itemer)
-		itemer.Unlock()
+		c.DoAddItem(item)
+		item.GetScene().DeleteItem(item)
+		item.DoSetScene(nil)
 	})
 }
 
-func (c *Char) PickEtcItemById(id int) {
+func (c *Char) PickItemById(id int) {
 	c.DoJob(func() {
 		if id < 0 {
 			return
 		}
+		item := c.scene.FindItemId(id)
+		if item == nil {
+			return
+		}
+		c.PickItem(item)
+		c.world.logger.Println(c.name, "pick up", item.Name())
 	})
-}
-
-func (c *Char) OnKillFunc() func(target BattleBioer) {
-	return func(target BattleBioer) {
-		// for quest check or add zeny
-	}
 }

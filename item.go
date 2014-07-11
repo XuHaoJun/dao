@@ -7,41 +7,62 @@ import (
 
 type Itemer interface {
 	Name() string
-	Id() int
 	AgeisName() string
 	IconViewId() int
+	DoSetScene(s *Scene)
+	SetScene(s *Scene)
 	Scene() *Scene
+	GetScene() *Scene
 	Lock()
 	Unlock()
+	RLock()
+	RUnlock()
 }
 
 type Item struct {
-	id         int
 	bsonId     bson.ObjectId
 	name       string
 	ageisName  string
 	iconViewId int
-	mutex      *sync.Mutex
+	mutex      *sync.RWMutex
 	scene      *Scene
 }
 
 func (i *Item) Name() string {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.name
 }
 
-func (i *Item) Id() int {
-	return i.id
-}
-
 func (i *Item) AgeisName() string {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.ageisName
 }
 
 func (i *Item) IconViewId() int {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.iconViewId
 }
 
+func (i *Item) SetScene(s *Scene) {
+	i.mutex.Lock()
+	i.scene = s
+	i.mutex.Unlock()
+}
+
+func (i *Item) DoSetScene(s *Scene) {
+	i.scene = s
+}
+
+func (i *Item) GetScene() *Scene {
+	return i.scene
+}
+
 func (i *Item) Scene() *Scene {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.scene
 }
 
@@ -51,6 +72,14 @@ func (i *Item) Lock() {
 
 func (i *Item) Unlock() {
 	i.mutex.Unlock()
+}
+
+func (i *Item) RLock() {
+	i.mutex.RLock()
+}
+
+func (i *Item) RUnlock() {
+	i.mutex.RUnlock()
 }
 
 type Equipment struct {
@@ -82,7 +111,7 @@ func (e *EquipmentDumpDB) Load() *Equipment {
 			ageisName:  e.AgeisName,
 			iconViewId: e.IconViewId,
 			scene:      nil,
-			mutex:      &sync.Mutex{},
+			mutex:      &sync.RWMutex{},
 		},
 		bonus:       e.Bonus.Load(),
 		etype:       e.Etype,
