@@ -12,12 +12,12 @@ type BattleBioer interface {
 	BattleInfo() *BattleInfo
 	Level() int
 	IsDied() bool
-	DecHp(int) bool
-	DecMp(int)
+	DecHp(n int, killer BattleBioer) bool
+	DecMp(n int)
 	CalcAttributes()
 	DoCalcAttributes()
 	// callbacks
-	OnBeKilledFunc() func()
+	OnBeKilledFunc() func(killer BattleBioer)
 	OnKillFunc() func(target BattleBioer)
 	// skills
 	NormalAttack(b2 BattleBioer)
@@ -45,16 +45,17 @@ type BattleBioBase struct {
 	mp    int
 	// callbacks
 	OnKill     func(target BattleBioer)
-	OnBeKilled func()
+	OnBeKilled func(killer BattleBioer)
 	// skills
 	normalAttackState *NormalAttackState
 }
 
 type NormalAttackState struct {
-	attackTimeStep time.Duration
-	attackRadius   float32
-	running        bool
-	quit           chan struct{}
+	attackCheckFunc func(b2 BattleBioer, skipCheckRunning bool) bool
+	attackTimeStep  time.Duration
+	attackRadius    float32
+	running         bool
+	quit            chan struct{}
 }
 
 func NewBattleBioBase() *BattleBioBase {
@@ -78,6 +79,7 @@ func NewBattleBioBase() *BattleBioBase {
 	// FIXME
 	// may be not use 2 sec for slowest attack velocity
 	b.normalAttackState = &NormalAttackState{
+		// attackCheckFunc: b.NormalAttackCheckFunc(),
 		attackTimeStep: 2 * time.Second,
 		attackRadius:   2.0,
 		running:        false,
@@ -85,6 +87,7 @@ func NewBattleBioBase() *BattleBioBase {
 	}
 	b.OnKill = b.OnKillFunc()
 	b.OnBeKilled = b.OnBeKilledFunc()
+	b.BioBase.moveState.moveCheckFunc = b.MoveCheckFunc()
 	return b
 }
 
@@ -179,7 +182,7 @@ func (b *BattleBioBase) BattleInfo() *BattleInfo {
 	return <-battleC
 }
 
-func (b *BattleBioBase) DecHp(n int) bool {
+func (b *BattleBioBase) DecHp(n int, killer BattleBioer) bool {
 	killedC := make(chan bool, 1)
 	err := b.DoJob(func() {
 		if b.hp <= 0 {
@@ -192,7 +195,7 @@ func (b *BattleBioBase) DecHp(n int) bool {
 			b.hp = 0
 			b.isDied = true
 			f := b.OnBeKilledFunc()
-			f()
+			f(killer)
 			killedC <- true
 		} else {
 			b.hp = tmpHp
@@ -225,8 +228,8 @@ func (b *BattleBioBase) OnKillFunc() func(target BattleBioer) {
 	return func(target BattleBioer) {}
 }
 
-func (b *BattleBioBase) OnBeKilledFunc() func() {
-	return func() {
+func (b *BattleBioBase) OnBeKilledFunc() func(BattleBioer) {
+	return func(killer BattleBioer) {
 		if b.scene != nil {
 			b.scene.DeleteBio(b)
 		}
@@ -250,15 +253,36 @@ func (na *NormalAttackCallbacks) CollisionPostSolve(arbiter *chipmunk.Arbiter) {
 
 func (na *NormalAttackCallbacks) CollisionExit(arbiter *chipmunk.Arbiter) {}
 
+func (b *BattleBioBase) NormalAttackCheckFunc() func(BattleBioer, bool) bool {
+	return func(b2 BattleBioer, skipCheckRunning bool) bool {
+		tmpRunning := (b.normalAttackState.running == true)
+		if skipCheckRunning == true {
+			tmpRunning = false
+		}
+		if b.isDied ||
+			b.BattleBioer() == b2 ||
+			b2.IsDied() ||
+			b.scene == nil ||
+			tmpRunning == true {
+			return false
+		}
+		b.normalAttackState.running = true
+		return true
+	}
+}
+
 func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
-	if b.IsDied() || b2.IsDied() || b == b2 {
+	attackCheckC := make(chan bool, 1)
+	err := b.DoJob(func() {
+		attackCheckC <- b.normalAttackState.attackCheckFunc(b2, false)
+	})
+	if err != nil || <-attackCheckC == false {
+		close(attackCheckC)
 		return
 	}
 	attackTimeStepC := make(chan time.Duration, 1)
-	err := b.DoJob(func() {
+	err = b.DoJob(func() {
 		b.normalAttackState.running = true
-		// TODO
-		// should detect attack radius from weapon
 		attackTimeStepC <- b.normalAttackState.attackTimeStep
 	})
 	if err != nil {
@@ -266,16 +290,21 @@ func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
 		return
 	}
 	timeC := time.Tick(<-attackTimeStepC)
+	defer func() {
+		b.normalAttackState.running = false
+	}()
 	for {
 		select {
 		case <-timeC:
-			b.DoJob(func() {
-				// TODO
-				// add attack radius check with
-				// target's position
+			err = b.DoJob(func() {
+				attackCheck := b.normalAttackState.attackCheckFunc(b2, true)
+				if attackCheck == false {
+					attackCheckC <- false
+					return
+				}
 				target := b2.BattleInfo()
 				if target.isDied == true {
-					b.ShutDownNormalAttack()
+					attackCheckC <- false
 					return
 				}
 				space := chipmunk.NewSpace()
@@ -292,29 +321,26 @@ func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
 				space.AddBody(target.body)
 				space.Step(0.1)
 				if check.isOverlap == false {
-					b.ShutDownNormalAttack()
+					attackCheckC <- false
 					return
 				}
 				dmage := b.atk - target.def
 				if dmage < 0 {
 					dmage = 0
 				}
-				killed := b2.DecHp(dmage)
+				killed := b2.DecHp(dmage, b)
 				if killed {
 					f := b.OnKillFunc()
 					f(b2)
-					b.ShutDownNormalAttack()
+					attackCheckC <- false
 					return
 				}
-				if b2.IsDied() {
-					b.ShutDownNormalAttack()
-					return
-				}
+				attackCheckC <- true
 			})
+			if err != nil || <-attackCheckC == false {
+				return
+			}
 		case <-b.normalAttackState.quit:
-			b.DoJob(func() {
-				b.normalAttackState.running = false
-			})
 			return
 		}
 	}
@@ -326,4 +352,20 @@ func (b *BattleBioBase) ShutDownNormalAttack() {
 			b.normalAttackState.quit <- struct{}{}
 		}
 	})
+}
+
+func (b *BattleBioBase) MoveCheckFunc() func(bool) bool {
+	return func(skipCheckRunning bool) bool {
+		tmpRunning := (b.moveState.running == true)
+		if skipCheckRunning == true {
+			tmpRunning = false
+		}
+		if b.isDied == true ||
+			b.scene == nil ||
+			tmpRunning == true {
+			return false
+		}
+		b.moveState.running = true
+		return true
+	}
 }

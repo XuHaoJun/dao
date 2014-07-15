@@ -128,7 +128,8 @@ func NewChar(name string, acc *Account) *Char {
 	c.vit = 1
 	c.wis = 1
 	c.spi = 1
-	c.OnKill = c.OnKillFunc()
+	// replace default onkill func
+	c.BattleBioBase.OnKill = c.OnKillFunc()
 	return c
 }
 

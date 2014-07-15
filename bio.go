@@ -1,6 +1,8 @@
 package dao
 
 import (
+	"time"
+
 	"github.com/vova616/chipmunk"
 	"github.com/vova616/chipmunk/vect"
 )
@@ -15,6 +17,7 @@ type Bioer interface {
 	DoJob(func()) error
 	Run()
 	ShutDown()
+	Move(float32, float32)
 }
 
 type SceneBioer interface {
@@ -37,6 +40,7 @@ type BioBase struct {
 	body       *chipmunk.Body
 	bodyViewId int
 	scene      *Scene
+	moveState  *MoveState
 	job        chan func()
 	quit       chan struct{}
 }
@@ -44,17 +48,24 @@ type BioBase struct {
 func NewBioBase() *BioBase {
 	body := chipmunk.NewBody(1, 1)
 	circle := chipmunk.NewCircle(vect.Vector_Zero, float32(32.0))
-	circle.IsSensor = true
 	body.SetPosition(vect.Vector_Zero)
 	body.AddShape(circle)
-	return &BioBase{
+	body.IgnoreGravity = true
+	bio := &BioBase{
 		name:       "",
 		bodyViewId: 0,
 		body:       body,
 		scene:      nil,
-		job:        make(chan func(), 512),
-		quit:       make(chan struct{}, 1),
+		moveState: &MoveState{
+			running:       false,
+			moveCheckFunc: nil,
+			quit:          make(chan struct{}, 1),
+		},
+		job:  make(chan func(), 512),
+		quit: make(chan struct{}, 1),
 	}
+	bio.moveState.moveCheckFunc = bio.MoveCheckFunc()
+	return bio
 }
 
 func (b *BioBase) Run() {
@@ -213,4 +224,68 @@ func (b *BioBase) Id() int {
 		return 0
 	}
 	return <-idC
+}
+
+type MoveState struct {
+	moveCheckFunc func(skilCheckRunning bool) bool
+	running       bool
+	quit          chan struct{}
+}
+
+func (b *BioBase) MoveCheckFunc() func(bool) bool {
+	return func(skipCheckRunning bool) bool {
+		tmpRunning := (b.moveState.running == true)
+		if skipCheckRunning == true {
+			tmpRunning = false
+		}
+		if b.scene == nil ||
+			tmpRunning == true {
+			return false
+		}
+		b.moveState.running = true
+		return true
+	}
+}
+
+func (b *BioBase) Move(x float32, y float32) {
+	moveCheckC := make(chan bool, 1)
+	err := b.DoJob(func() {
+		moveCheckC <- b.moveState.moveCheckFunc(false)
+	})
+	if err != nil || <-moveCheckC == false {
+		close(moveCheckC)
+		return
+	}
+	timeC := time.Tick(time.Second * (1 / 60))
+	defer func() {
+		b.moveState.running = false
+	}()
+	for {
+		select {
+		case <-timeC:
+			err := b.DoJob(func() {
+				moveCheck := b.moveState.moveCheckFunc(true)
+				if moveCheck == false {
+					moveCheckC <- false
+					return
+				}
+				// TODO
+				// imple move
+				moveCheckC <- true
+			})
+			if err != nil || <-moveCheckC == false {
+				return
+			}
+		case <-b.moveState.quit:
+			return
+		}
+	}
+}
+
+func (b *BioBase) ShutDownMove() {
+	b.DoJob(func() {
+		if b.moveState.running {
+			b.moveState.quit <- struct{}{}
+		}
+	})
 }
