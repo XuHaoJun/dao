@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"github.com/vova616/chipmunk/vect"
 	"labix.org/v2/mgo/bson"
 	"sync"
 )
@@ -13,6 +14,8 @@ type Itemer interface {
 	SetScene(s *Scene)
 	Scene() *Scene
 	GetScene() *Scene
+	SetPos(vect.Vect)
+	Pos() vect.Vect
 	Lock()
 	Unlock()
 	RLock()
@@ -26,6 +29,7 @@ type Item struct {
 	iconViewId int
 	mutex      *sync.RWMutex
 	scene      *Scene
+	pos        vect.Vect
 }
 
 func (i *Item) Name() string {
@@ -50,6 +54,18 @@ func (i *Item) SetScene(s *Scene) {
 	i.mutex.Lock()
 	i.scene = s
 	i.mutex.Unlock()
+}
+
+func (i *Item) SetPos(pos vect.Vect) {
+	i.mutex.Lock()
+	i.pos = pos
+	i.mutex.Unlock()
+}
+
+func (i *Item) Pos() vect.Vect {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
+	return i.pos
 }
 
 func (i *Item) DoSetScene(s *Scene) {
@@ -112,6 +128,7 @@ func (e *EquipmentDumpDB) Load() *Equipment {
 			iconViewId: e.IconViewId,
 			scene:      nil,
 			mutex:      &sync.RWMutex{},
+			pos:        vect.Vector_Zero,
 		},
 		bonus:       e.Bonus.Load(),
 		etype:       e.Etype,

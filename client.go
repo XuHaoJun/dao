@@ -6,9 +6,9 @@ import (
 )
 
 type ClientCall struct {
-	Receiver string
-	Method   string
-	Params   []interface{}
+	Receiver string        `json:"receiver"`
+	Method   string        `json:"method"`
+	Params   []interface{} `json:"params"`
 }
 
 // {"receiver": "World", "method": "RegisterAccount", "params": ["wiwi", "wiwi"]}

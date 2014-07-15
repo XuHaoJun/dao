@@ -5,11 +5,14 @@ import (
 	"github.com/vova616/chipmunk/vect"
 )
 
+// TODO
+// imple AOI
+
 type Bioer interface {
 	Name() string
 	Id() int
 	SetId(int)
-	DoJob(func())
+	DoJob(func()) error
 	Run()
 	ShutDown()
 }
@@ -34,10 +37,8 @@ type BioBase struct {
 	body       *chipmunk.Body
 	bodyViewId int
 	scene      *Scene
-	// equipItem map[*Item]struct{}
-	// items map[]
-	job  chan func()
-	quit chan struct{}
+	job        chan func()
+	quit       chan struct{}
 }
 
 func NewBioBase() *BioBase {
@@ -84,6 +85,10 @@ func (b *BioBase) DoJob(f func()) (err error) {
 func (b *BioBase) ShutDown() {
 	b.quit <- struct{}{}
 	<-b.quit
+}
+
+func (b *BioBase) Bioer() Bioer {
+	return b
 }
 
 func (b *BioBase) Name() string {
@@ -173,8 +178,8 @@ func (b *BioBase) Pos() Pos {
 
 func (b *BioBase) SetPos(p Pos) {
 	b.DoJob(func() {
-		x := vect.Float(p.x)
-		y := vect.Float(p.y)
+		x := vect.Float(p.X)
+		y := vect.Float(p.Y)
 		pos := vect.Vect{X: x, Y: y}
 		b.body.SetPosition(pos)
 	})

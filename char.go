@@ -3,6 +3,8 @@ package dao
 import (
 	"strconv"
 
+	"github.com/vova616/chipmunk"
+	"github.com/vova616/chipmunk/vect"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 )
@@ -26,6 +28,7 @@ type Char struct {
 	sock        *wsConn
 	lastScene   *SceneInfo
 	saveScene   *SceneInfo
+	dzeny       int
 }
 
 type CharDumpDB struct {
@@ -37,10 +40,47 @@ type CharDumpDB struct {
 	Vit         int               `bson:"vit"`
 	Wis         int               `bson:"wis"`
 	Spi         int               `bson:"spi"`
+	Dzeny       int               `bson:"dzeny"`
 	LastScene   *SceneInfo        `bson:"lastScene"`
 	SaveScene   *SceneInfo        `bson:"saveScene"`
 	UsingEquips UsingEquipsDumpDB `bson:"usingEquips"`
 	Items       *ItemsDumpDB      `bson:"items"`
+	BodyViewId  int               `bson:"bodyViewId"`
+	BodyShape   *CircleShape      `bson:"bodyShape"`
+}
+
+type CircleShape struct {
+	Radius float32
+}
+
+func (c *Char) DumpDB() *CharDumpDB {
+	cDump := &CharDumpDB{
+		Id:          c.bsonId,
+		SlotIndex:   c.slotIndex,
+		Name:        c.name,
+		Level:       c.level,
+		Str:         c.str,
+		Vit:         c.vit,
+		Wis:         c.wis,
+		Spi:         c.spi,
+		Dzeny:       c.dzeny,
+		Items:       c.items.DumpDB(),
+		UsingEquips: c.usingEquips.DumpDB(),
+		LastScene:   nil,
+		SaveScene:   c.saveScene,
+		BodyViewId:  c.bodyViewId,
+		BodyShape:   &CircleShape{32},
+	}
+	if c.scene != nil {
+		cDump.LastScene = &SceneInfo{
+			c.scene.name,
+			float32(c.body.Position().X),
+			float32(c.body.Position().Y),
+		}
+	} else {
+		cDump.LastScene = &SceneInfo{"daoCity", 0.0, 0.0}
+	}
+	return cDump
 }
 
 func (cDump *CharDumpDB) Load(acc *Account) *Char {
@@ -51,10 +91,21 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.vit = cDump.Vit
 	c.wis = cDump.Wis
 	c.spi = cDump.Spi
+	c.dzeny = cDump.Dzeny
 	c.lastScene = cDump.LastScene
 	c.saveScene = cDump.SaveScene
 	c.items = cDump.Items.Load()
 	c.usingEquips = cDump.UsingEquips.Load()
+	c.bodyViewId = cDump.BodyViewId
+	body := chipmunk.NewBody(1, 1)
+	c.body = body
+	c.body.SetPosition(vect.Vect{
+		X: vect.Float(cDump.LastScene.X),
+		Y: vect.Float(cDump.LastScene.Y)})
+	circle := chipmunk.NewCircle(vect.Vector_Zero, cDump.BodyShape.Radius)
+	circle.IsSensor = true
+	c.body.AddShape(circle)
+	c.DoCalcAttributes()
 	return c
 }
 
@@ -68,6 +119,7 @@ func NewChar(name string, acc *Account) *Char {
 		account:       acc,
 		world:         acc.world,
 		sock:          acc.sock,
+		lastScene:     &SceneInfo{"daoCity", 0, 0},
 		saveScene:     &SceneInfo{"daoCity", 0, 0},
 	}
 	c.name = name
@@ -106,6 +158,18 @@ func (c *Char) Run() {
 	}
 }
 
+func (c *Char) DoCalcAttributes() {
+	// TODO
+	// add attributes from usingEquips
+	c.BattleBioBase.DoCalcAttributes()
+}
+
+func (c *Char) CalcAttributes() {
+	c.DoJob(func() {
+		c.DoCalcAttributes()
+	})
+}
+
 func (c *Char) saveChar(accs *mgo.Collection) {
 	ci := strconv.Itoa(c.slotIndex)
 	cii := "chars." + ci
@@ -129,37 +193,12 @@ func (c *Char) Save() {
 	})
 }
 
-func (c *Char) DumpDB() *CharDumpDB {
-	cDump := &CharDumpDB{
-		Id:          c.bsonId,
-		SlotIndex:   c.slotIndex,
-		Name:        c.name,
-		Level:       c.level,
-		Str:         c.str,
-		Vit:         c.vit,
-		Wis:         c.wis,
-		Spi:         c.spi,
-		Items:       c.items.DumpDB(),
-		UsingEquips: c.usingEquips.DumpDB(),
-		LastScene:   nil,
-		SaveScene:   c.saveScene,
-	}
-	if c.scene != nil {
-		cDump.LastScene = &SceneInfo{
-			c.scene.name,
-			float32(c.body.Position().X),
-			float32(c.body.Position().Y),
-		}
-	} else {
-		cDump.LastScene = &SceneInfo{"daoCity", 0.0, 0.0}
-	}
-	return cDump
-}
-
 func (c *Char) Login() {
 	go c.Run()
 	c.DoJob(func() {
-		if c.isOnline == true {
+		if c.isOnline == true ||
+			c.lastScene == nil ||
+			c.saveScene == nil {
 			return
 		}
 		c.isOnline = true
@@ -185,7 +224,11 @@ func (c *Char) Login() {
 func (c *Char) OnKillFunc() func(target BattleBioer) {
 	return func(target BattleBioer) {
 		// for quest check or add zeny when kill
-		// mob, ok := target.(*Mob)
+		mob, ok := target.(*Mob)
+		if !ok {
+			return
+		}
+		c.dzeny += mob.Level() * 10
 	}
 }
 
@@ -198,7 +241,7 @@ func (c *Char) NormalAttackByMid(mid int) {
 		if mob == nil {
 			return
 		}
-		c.NormalAttack(mob)
+		c.NormalAttack(mob.BattleBioer())
 	})
 }
 

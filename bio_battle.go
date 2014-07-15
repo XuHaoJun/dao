@@ -14,6 +14,8 @@ type BattleBioer interface {
 	IsDied() bool
 	DecHp(int) bool
 	DecMp(int)
+	CalcAttributes()
+	DoCalcAttributes()
 	// callbacks
 	OnBeKilledFunc() func()
 	OnKillFunc() func(target BattleBioer)
@@ -49,7 +51,7 @@ type BattleBioBase struct {
 }
 
 type NormalAttackState struct {
-	attackVelocity time.Duration
+	attackTimeStep time.Duration
 	attackRadius   float32
 	running        bool
 	quit           chan struct{}
@@ -76,7 +78,7 @@ func NewBattleBioBase() *BattleBioBase {
 	// FIXME
 	// may be not use 2 sec for slowest attack velocity
 	b.normalAttackState = &NormalAttackState{
-		attackVelocity: 2 * time.Second,
+		attackTimeStep: 2 * time.Second,
 		attackRadius:   2.0,
 		running:        false,
 		quit:           make(chan struct{}, 1),
@@ -99,6 +101,30 @@ func (b *BattleBioBase) Run() {
 			return
 		}
 	}
+}
+
+func (b *BattleBioBase) DoCalcAttributes() {
+	b.atk = b.str * 5
+	b.maxHp = b.vit * 5
+	b.def = b.vit * 3
+	b.maxMp = b.wis * 5
+	b.mdef = b.wis * 3
+	if b.hp > b.maxHp {
+		b.hp = b.maxHp
+	}
+	if b.mp > b.maxMp {
+		b.mp = b.maxMp
+	}
+}
+
+func (b *BattleBioBase) CalcAttributes() {
+	b.DoJob(func() {
+		b.DoCalcAttributes()
+	})
+}
+
+func (b *BattleBioBase) BattleBioer() BattleBioer {
+	return b
 }
 
 func (b *BattleBioBase) Level() int {
@@ -225,21 +251,21 @@ func (na *NormalAttackCallbacks) CollisionPostSolve(arbiter *chipmunk.Arbiter) {
 func (na *NormalAttackCallbacks) CollisionExit(arbiter *chipmunk.Arbiter) {}
 
 func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
-	if b.IsDied() || b2.IsDied() {
+	if b.IsDied() || b2.IsDied() || b == b2 {
 		return
 	}
-	attackVelocityC := make(chan time.Duration, 1)
+	attackTimeStepC := make(chan time.Duration, 1)
 	err := b.DoJob(func() {
 		b.normalAttackState.running = true
 		// TODO
 		// should detect attack radius from weapon
-		attackVelocityC <- b.normalAttackState.attackVelocity
+		attackTimeStepC <- b.normalAttackState.attackTimeStep
 	})
 	if err != nil {
-		close(attackVelocityC)
+		close(attackTimeStepC)
 		return
 	}
-	timeC := time.Tick(<-attackVelocityC)
+	timeC := time.Tick(<-attackTimeStepC)
 	for {
 		select {
 		case <-timeC:

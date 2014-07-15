@@ -107,7 +107,7 @@ func (w *World) RegisterAccount(username string, password string) {
 		} else if err == mgo.ErrNotFound {
 			acc := NewAccount(username, password, w)
 			acc.DoSaveByWorldDB()
-			w.logger.Println(acc.username, "Registered.")
+			w.logger.Println("Account:", acc.username, "Registered.")
 			// TODO
 			// Update client screen
 		}
@@ -121,6 +121,12 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 		if ok {
 			// TODO
 			// update error to client duplicate account login
+			clientCall := &ClientCall{
+				Receiver: "world",
+				Method:   "errLoginAccount",
+				Params:   nil,
+			}
+			sock.SendJSON(clientCall)
 			close(accC)
 			return
 		}
@@ -132,14 +138,22 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 		}
 		if err == mgo.ErrNotFound {
 			// notify client not find or password error
+			clientCall := &ClientCall{
+				Receiver: "world",
+				Method:   "errLoginAccount",
+				Params:   nil,
+			}
+			sock.SendJSON(clientCall)
 			close(accC)
 			return
 		}
 		acc := foundAcc.Load(w)
 		w.accounts[acc.username] = acc
-		w.logger.Println("Account:", acc.username, "Logined.")
 		acc.Login(sock)
 		accC <- acc
+		// TODO
+		// show successfully login to client
+		w.logger.Println("Account:", acc.username, "Logined.")
 	}
 	acc, ok := <-accC
 	if !ok {

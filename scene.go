@@ -5,8 +5,14 @@ import (
 )
 
 type Pos struct {
-	x float32
-	y float32
+	X float32
+	Y float32
+}
+
+type SceneBios struct {
+	mob  map[int]*Mob
+	npc  map[int]*Npc
+	char map[int]*Char
 }
 
 type Scene struct {
@@ -109,6 +115,23 @@ func (s *Scene) DeleteBio(b SceneBioer) {
 			fmt.Println("you should never look this line.")
 		}
 	})
+}
+
+func (s *Scene) SceneBios() *SceneBios {
+	biosC := make(chan *SceneBios, 1)
+	err := s.DoJob(func() {
+		bios := &SceneBios{
+			mob:  s.mobs,
+			npc:  s.npcs,
+			char: s.chars,
+		}
+		biosC <- bios
+	})
+	if err != nil {
+		close(biosC)
+		return nil
+	}
+	return <-biosC
 }
 
 func (s *Scene) AddBio(b SceneBioer) {

@@ -25,15 +25,6 @@ func (conn *wsConn) write(mt int, msg []byte) error {
 	return conn.ws.WriteMessage(mt, msg)
 }
 
-func (conn *wsConn) writeJSON(msg interface{}) error {
-	jsonMsg, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	conn.send <- jsonMsg
-	return nil
-}
-
 func (conn *wsConn) writeRun() {
 	ticker := time.NewTicker(54 * time.Second)
 	defer func() {
@@ -58,7 +49,17 @@ func (conn *wsConn) writeRun() {
 }
 
 func (conn *wsConn) Close() {
-	close(conn.send)
+	conn.ws.Close()
+}
+
+func (conn *wsConn) SendJSON(msg interface{}) (err error) {
+	defer handleErrSendCloseChanel(&err)
+	jsonMsg, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	conn.send <- jsonMsg
+	return
 }
 
 func (conn *wsConn) Send(msg []byte) (err error) {
@@ -97,7 +98,7 @@ ReadLoop:
 			break ReadLoop
 		}
 		// echo
-		conn.send <- msg
+		// conn.send <- msg
 		// TODO
 		// connect it to my game
 		clientCall := &ClientCall{}
@@ -197,7 +198,7 @@ func (hub *WsHub) Run() {
 			// TODO
 			// should connect with my game
 			for conn, _ := range hub.connections {
-				conn.Close()
+				close(conn.send)
 			}
 			hub.quit <- struct{}{}
 			return
@@ -279,25 +280,25 @@ func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
 func (s *Server) RunHTTP() {
 	m := martini.Classic()
 	// browser will download game client from /
-	m.Get("/", func() string {
-		return `<html><body><script src='//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
-    <ul id=messages></ul><form><input id=message><input type="submit" id=send value=Send></form>
-    <script>
-    var c=new WebSocket('ws://localhost:3000/daows');
-    c.onopen = function(){
-      c.onmessage = function(response){
-        console.log(response.data);
-        var newMessage = $('<li>').text(response.data);
-        $('#messages').append(newMessage);
-        $('#message').val('');
-      };
-      $('form').submit(function(){
-        c.send($('#message').val());
-        return false;
-      });
-    }
-    </script></body></html>`
-	})
+	// 	m.Get("/", func() string {
+	// 		return `<html><body><script src='//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
+	// <ul id=messages></ul><form><input id=message><input type="submit" id=send value=Send></form>
+	// <script>
+	// var c=new WebSocket("ws://" + location.hostname + ":"  + location.port + "/daows");
+	// c.onopen = function(){
+	//   c.onmessage = function(response){
+	//     console.log(response.data);
+	//     var newMessage = $('<li>').text(response.data);
+	//     $('#messages').append(newMessage);
+	//     $('#message').val('');
+	//   };
+	//   $('form').submit(function(){
+	//     c.send($('#message').val());
+	//     return false;
+	//   });
+	// }
+	// </script></body></html>`
+	// 	})
 	// handle game connection by websocket
 	go s.wsHub.Run()
 	m.Map(s)

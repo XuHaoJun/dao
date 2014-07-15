@@ -154,7 +154,8 @@ func (a *Account) IsSelectingChar() bool {
 func (a *Account) LoginChar(charSlot int) {
 	a.DoJob(func() {
 		checkRange := charSlot >= 0 && charSlot < len(a.chars)
-		if a.isOnline == false ||
+		if len(a.chars) == 0 ||
+			a.isOnline == false ||
 			checkRange == false ||
 			a.usingChar != nil {
 			return
@@ -196,8 +197,12 @@ func (a *Account) CreateChar(name string) {
 			return
 		}
 		if len(a.chars) >= a.world.Configs().maxChars {
-			// TODO
-			// return error message to client
+			clientCall := &ClientCall{
+				Receiver: "account",
+				Method:   "errCreateChar",
+				Params:   nil,
+			}
+			a.sock.SendJSON(clientCall)
 			return
 		}
 		foundChar := struct{ Name string }{}
@@ -207,9 +212,12 @@ func (a *Account) CreateChar(name string) {
 		if err != nil && err != mgo.ErrNotFound {
 			panic(err)
 		} else if foundChar.Name == name {
-			// TODO
-			// reject to register same char name
-			// send some message to client
+			clientCall := &ClientCall{
+				Receiver: "account",
+				Method:   "errCreateChar",
+				Params:   nil,
+			}
+			a.sock.SendJSON(clientCall)
 			return
 		} else if err == mgo.ErrNotFound {
 			char := NewChar(name, a)
@@ -221,6 +229,12 @@ func (a *Account) CreateChar(name string) {
 				char.name+".")
 			// TODO
 			// Update client screen
+			// clientCall := &ClientCall{
+			// 	Receiver: "account",
+			// 	Method:   "setAndShowChars",
+			// 	Params:   nil,
+			// }
+			// a.sock.SendJSON(clientCall)
 		}
 	})
 }
@@ -233,8 +247,7 @@ func (a *Account) Logout() {
 		a.isOnline = false
 		a.world.LogoutAccount(a.username)
 		a.ShutDown()
+		a.sock.Close()
 		a.world.logger.Println("Account:", a.username, "logouted.")
-		// TODO
-		// 1. update client to selecting char screen.
 	})
 }
