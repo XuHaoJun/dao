@@ -236,6 +236,22 @@ func (b *BattleBioBase) OnBeKilledFunc() func(BattleBioer) {
 	}
 }
 
+func (b *BattleBioBase) MoveCheckFunc() func(bool) bool {
+	return func(skipCheckRunning bool) bool {
+		tmpRunning := (b.moveState.running == true)
+		if skipCheckRunning == true {
+			tmpRunning = false
+		}
+		if b.isDied == true ||
+			b.scene == nil ||
+			tmpRunning == true {
+			return false
+		}
+		b.moveState.running = true
+		return true
+	}
+}
+
 type NormalAttackCallbacks struct {
 	isOverlap bool
 }
@@ -291,7 +307,11 @@ func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
 	}
 	timeC := time.Tick(<-attackTimeStepC)
 	defer func() {
-		b.normalAttackState.running = false
+		b.DoJob(func() {
+			if b.normalAttackState.running {
+				b.normalAttackState.running = false
+			}
+		})
 	}()
 	for {
 		select {
@@ -352,20 +372,4 @@ func (b *BattleBioBase) ShutDownNormalAttack() {
 			b.normalAttackState.quit <- struct{}{}
 		}
 	})
-}
-
-func (b *BattleBioBase) MoveCheckFunc() func(bool) bool {
-	return func(skipCheckRunning bool) bool {
-		tmpRunning := (b.moveState.running == true)
-		if skipCheckRunning == true {
-			tmpRunning = false
-		}
-		if b.isDied == true ||
-			b.scene == nil ||
-			tmpRunning == true {
-			return false
-		}
-		b.moveState.running = true
-		return true
-	}
 }

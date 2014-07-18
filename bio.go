@@ -41,8 +41,15 @@ type BioBase struct {
 	bodyViewId int
 	scene      *Scene
 	moveState  *MoveState
+	viewAOI    *CircleAOI
 	job        chan func()
 	quit       chan struct{}
+}
+
+type MoveState struct {
+	moveCheckFunc func(skilCheckRunning bool) bool
+	running       bool
+	quit          chan struct{}
 }
 
 func NewBioBase() *BioBase {
@@ -60,6 +67,12 @@ func NewBioBase() *BioBase {
 			running:       false,
 			moveCheckFunc: nil,
 			quit:          make(chan struct{}, 1),
+		},
+		viewAOI: &CircleAOI{
+			radius:  128,
+			body:    nil,
+			running: false,
+			quit:    make(chan struct{}, 1),
 		},
 		job:  make(chan func(), 512),
 		quit: make(chan struct{}, 1),
@@ -226,12 +239,6 @@ func (b *BioBase) Id() int {
 	return <-idC
 }
 
-type MoveState struct {
-	moveCheckFunc func(skilCheckRunning bool) bool
-	running       bool
-	quit          chan struct{}
-}
-
 func (b *BioBase) MoveCheckFunc() func(bool) bool {
 	return func(skipCheckRunning bool) bool {
 		tmpRunning := (b.moveState.running == true)
@@ -256,9 +263,11 @@ func (b *BioBase) Move(x float32, y float32) {
 		close(moveCheckC)
 		return
 	}
-	timeC := time.Tick(time.Second * (1 / 60))
+	timeC := time.Tick((1 / 60) * time.Second) // 60 fps
 	defer func() {
-		b.moveState.running = false
+		b.DoJob(func() {
+			b.moveState.running = false
+		})
 	}()
 	for {
 		select {
@@ -288,4 +297,28 @@ func (b *BioBase) ShutDownMove() {
 			b.moveState.quit <- struct{}{}
 		}
 	})
+}
+
+type CircleAOI struct {
+	radius  float32
+	body    *chipmunk.Body
+	bios    Bioer
+	running bool
+	quit    chan struct{}
+}
+
+func (b *BioBase) RunViewAOI() {
+	timeC := time.Tick((1 / 60) * time.Second) // 60 fps
+	for {
+		select {
+		case <-timeC:
+			// TODO
+			// 1. scan bios from scene like scene.Bios()
+			// and update view bios.
+			// 2. imple onenter and onleave callback for
+			// bio enter or leave aoi
+		case <-b.viewAOI.quit:
+			return
+		}
+	}
 }

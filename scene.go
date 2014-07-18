@@ -10,9 +10,9 @@ type Pos struct {
 }
 
 type SceneBios struct {
-	mob  map[int]*Mob
-	npc  map[int]*Npc
-	char map[int]*Char
+	mobs  map[int]*Mob
+	npcs  map[int]*Npc
+	chars map[int]*Char
 }
 
 type Scene struct {
@@ -97,33 +97,41 @@ func (s *Scene) DeleteBio(b SceneBioer) {
 			mob := b.(*Mob)
 			mid := mob.id
 			s.mobs[mid] = nil
-			mob.SetId(0)
-			mob.SetScene(nil)
+			// mob.SetId(0)
+			// mob.SetScene(nil)
 		case *Npc:
 			npc := b.(*Npc)
 			nid := npc.id
 			s.npcs[nid] = nil
-			npc.SetId(0)
-			npc.SetScene(nil)
 		case *Char:
 			char := b.(*Char)
 			cid := char.id
 			s.chars[cid] = nil
-			char.SetId(0)
-			char.SetScene(nil)
 		default:
 			fmt.Println("you should never look this line.")
 		}
 	})
 }
 
-func (s *Scene) SceneBios() *SceneBios {
+func (s *Scene) Bios() *SceneBios {
 	biosC := make(chan *SceneBios, 1)
 	err := s.DoJob(func() {
+		mobs := make(map[int]*Mob, len(s.mobs))
+		for i, mob := range s.mobs {
+			mobs[i] = mob
+		}
+		npcs := make(map[int]*Npc, len(s.npcs))
+		for i, npc := range s.npcs {
+			npcs[i] = npc
+		}
+		chars := make(map[int]*Char, len(s.chars))
+		for i, char := range s.chars {
+			chars[i] = char
+		}
 		bios := &SceneBios{
-			mob:  s.mobs,
-			npc:  s.npcs,
-			char: s.chars,
+			mobs:  mobs,
+			npcs:  npcs,
+			chars: chars,
 		}
 		biosC <- bios
 	})

@@ -40,7 +40,7 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		accounts: make(map[string]*Account),
 		scenes:   make(map[string]*Scene),
 		db:       db,
-		configs:  &WorldConfigs{5, 40},
+		configs:  &WorldConfigs{5, 30},
 		logger:   log.New(os.Stdout, "[dao-"+name+"] ", 0),
 		job:      make(chan func(), 512),
 		quit:     make(chan struct{}, 1),
@@ -150,9 +150,19 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 		acc := foundAcc.Load(w)
 		w.accounts[acc.username] = acc
 		acc.Login(sock)
-		accC <- acc
 		// TODO
-		// show successfully login to client
+		// show chars for select
+		charClients := make([]interface{}, len(acc.chars))
+		for i, char := range acc.chars {
+			charClients[i] = char.CharClient()
+		}
+		clientCall := &ClientCall{
+			Receiver: "world",
+			Method:   "setAccount",
+			Params:   []interface{}{username, charClients},
+		}
+		sock.SendJSON(clientCall)
+		accC <- acc
 		w.logger.Println("Account:", acc.username, "Logined.")
 	}
 	acc, ok := <-accC

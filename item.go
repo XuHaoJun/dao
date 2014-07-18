@@ -22,6 +22,9 @@ type Itemer interface {
 	RUnlock()
 }
 
+// TODO
+// item may be have body?
+
 type Item struct {
 	bsonId     bson.ObjectId
 	name       string

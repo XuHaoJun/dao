@@ -19,7 +19,7 @@ type Char struct {
 	*BattleBioBase
 	bsonId      bson.ObjectId
 	usingEquips UsingEquips
-	items       *Items
+	items       *Items // may be rename to inventory
 	world       *World
 	account     *Account
 	slotIndex   int
@@ -29,6 +29,32 @@ type Char struct {
 	lastScene   *SceneInfo
 	saveScene   *SceneInfo
 	dzeny       int
+}
+
+type CharClient struct {
+	Id         int    `json:"id"`
+	Name       string `json:"name"`
+	SlotIndex  int    `json:"slotindex"`
+	SceneName  string `json:"sceneName"`
+	BodyViewId int    `json:"bodyViewid"`
+	Level      int    `json:"level"`
+	IsDied     bool   `json:"isDied"`
+	// main attribue
+	Str int `json:"str"`
+	Vit int `json:"vit"`
+	Wis int `json:"wis"`
+	Spi int `json:"spi"`
+	// sub attribue
+	Def   int `json:"def"`
+	Mdef  int `json:"mdef"`
+	Atk   int `json:"atk"`
+	Matk  int `json:"matk"`
+	MaxHp int `json:"maxHp"`
+	Hp    int `json:"hp"`
+	MaxMp int `json:"maxMp"`
+	Mp    int `json:"mp"`
+	// TODO
+	// add items and body info
 }
 
 type CharDumpDB struct {
@@ -131,6 +157,33 @@ func NewChar(name string, acc *Account) *Char {
 	// replace default onkill func
 	c.BattleBioBase.OnKill = c.OnKillFunc()
 	return c
+}
+
+func (c *Char) CharClient() *CharClient {
+	cc := &CharClient{
+		Id:         c.id,
+		Name:       c.name,
+		SlotIndex:  c.slotIndex,
+		SceneName:  c.scene.name,
+		BodyViewId: c.bodyViewId,
+		Level:      c.level,
+		IsDied:     c.isDied,
+		//
+		Str: c.str,
+		Vit: c.vit,
+		Wis: c.wis,
+		Spi: c.spi,
+		//:,
+		Def:   c.def,
+		Mdef:  c.mdef,
+		Atk:   c.atk,
+		Matk:  c.matk,
+		MaxHp: c.maxHp,
+		Hp:    c.hp,
+		MaxMp: c.maxMp,
+		Mp:    c.mp,
+	}
+	return cc
 }
 
 func (c *Char) CharClientCall() CharClientCall {
@@ -259,6 +312,84 @@ func (c *Char) Logout() {
 	})
 }
 
+func (c *Char) DoHasEquipInUsingEquips(e *Equipment) bool {
+	for i := 0; i < len(c.usingEquips); i++ {
+		if e == c.usingEquips[i] {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Char) DoHasEquipInItems(e *Equipment) bool {
+	for i := 0; i < len(c.items.equipment); i++ {
+		if e == c.items.equipment[i] {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Char) EquipBySlot(slot int) {
+	c.DoJob(func() {
+		if slot < 0 {
+			return
+		}
+		e := c.items.equipment[slot]
+		if e == nil {
+			return
+		}
+		c.DoEquip(e)
+	})
+}
+
+func (c *Char) DoEquip(e *Equipment) {
+	c.usingEquips[e.etype] = e
+	// TODO
+	// inc equip's bonus to char
+	c.DoCalcAttributes()
+}
+
+func (c *Char) Equip(e *Equipment) {
+	c.DoJob(func() {
+		found := c.DoHasEquipInItems(e)
+		if found == false {
+			return
+		}
+		c.DoEquip(e)
+	})
+}
+
+func (c *Char) DoUnequip(e *Equipment) {
+	c.usingEquips[e.etype] = nil
+	// TODO
+	// dec equip's bonus to char
+	c.DoCalcAttributes()
+}
+
+func (c *Char) Unequip(e *Equipment) {
+	c.DoJob(func() {
+		found := c.DoHasEquipInUsingEquips(e)
+		if found == false {
+			return
+		}
+		c.DoUnequip(e)
+	})
+}
+
+func (c *Char) UnequipBySlot(slot int) {
+	c.DoJob(func() {
+		if slot < 0 {
+			return
+		}
+		e := c.usingEquips[slot]
+		if e == nil {
+			return
+		}
+		c.DoUnequip(e)
+	})
+}
+
 func (c *Char) DoAddItem(itemer Itemer) {
 	switch item := itemer.(type) {
 	case *EtcItem:
@@ -291,16 +422,20 @@ func (c *Char) AddItem(itemer Itemer) {
 	})
 }
 
+func (c *Char) DoPickItem(item Itemer) {
+	item.Lock()
+	defer item.Unlock()
+	if item.GetScene() == nil {
+		return
+	}
+	c.DoAddItem(item)
+	item.GetScene().DeleteItem(item)
+	item.DoSetScene(nil)
+}
+
 func (c *Char) PickItem(item Itemer) {
 	c.DoJob(func() {
-		item.Lock()
-		defer item.Unlock()
-		if item.GetScene() == nil {
-			return
-		}
-		c.DoAddItem(item)
-		item.GetScene().DeleteItem(item)
-		item.DoSetScene(nil)
+		c.DoPickItem(item)
 	})
 }
 
@@ -313,7 +448,7 @@ func (c *Char) PickItemById(id int) {
 		if item == nil {
 			return
 		}
-		c.PickItem(item)
-		c.world.logger.Println(c.name, "pick up", item.Name())
+		c.DoPickItem(item)
+		c.world.logger.Println("Char:", c.name, "pick up", item.Name())
 	})
 }
