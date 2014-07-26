@@ -204,6 +204,8 @@ func (c *Char) Run() {
 			c.isOnline = false
 			if c.scene != nil {
 				c.scene.DeleteBio(c)
+				c.scene = nil
+				c.id = 0
 			}
 			close(c.job)
 			c.quit <- struct{}{}
@@ -309,6 +311,27 @@ func (c *Char) Logout() {
 		c.account.Logout()
 		c.ShutDown()
 		c.account.world.logger.Println("Char:", c.name, "logouted.")
+	})
+}
+
+func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall) {
+	c.DoJob(func() {
+		// if cc.Method == "Talk" &&
+		// 	len(cc.Params) == 2 &&
+		// 	cc.Params[0].(string) == "local" {
+		// 	c.sock.SendMsg(cc)
+		// 	return
+		// }
+		// TODO
+		// add itemPublisher in the future
+		bioPublisher, ok := publisher.(Bioer)
+		if !ok {
+			return
+		}
+		_, found := c.viewAOI.bioers[bioPublisher]
+		if found {
+			c.sock.SendMsg(cc)
+		}
 	})
 }
 

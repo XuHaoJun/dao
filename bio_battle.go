@@ -91,19 +91,8 @@ func NewBattleBioBase() *BattleBioBase {
 	return b
 }
 
-func (b *BattleBioBase) Run() {
-	for {
-		select {
-		case job, ok := <-b.job:
-			if !ok {
-				return
-			}
-			job()
-		case <-b.quit:
-			b.quit <- struct{}{}
-			return
-		}
-	}
+func (b *BattleBioBase) Bioer() Bioer {
+	return b
 }
 
 func (b *BattleBioBase) DoCalcAttributes() {

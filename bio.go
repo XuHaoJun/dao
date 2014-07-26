@@ -7,9 +7,6 @@ import (
 	"github.com/vova616/chipmunk/vect"
 )
 
-// TODO
-// imple AOI
-
 type Bioer interface {
 	Name() string
 	Id() int
@@ -17,7 +14,8 @@ type Bioer interface {
 	DoJob(func()) error
 	Run()
 	ShutDown()
-	Move(float32, float32)
+	Move(x float32, y float32)
+	Body() *chipmunk.Body
 }
 
 type SceneBioer interface {
@@ -25,12 +23,8 @@ type SceneBioer interface {
 	SetId(int)
 	Scene() *Scene
 	SetScene(*Scene)
-	X() float32
-	SetX(float32)
-	Y() float32
-	SetY(float32)
-	Pos() Pos
-	SetPos(Pos)
+	SetIdAndScene(int, *Scene)
+	Body() *chipmunk.Body
 }
 
 // BioBase imple Bioer and SceneBioer
@@ -41,9 +35,12 @@ type BioBase struct {
 	bodyViewId int
 	scene      *Scene
 	moveState  *MoveState
-	viewAOI    *CircleAOI
-	job        chan func()
-	quit       chan struct{}
+	// aoi
+	enableViewAOI bool
+	viewAOI       *CircleAOI
+	// base
+	job  chan func()
+	quit chan struct{}
 }
 
 type MoveState struct {
@@ -59,29 +56,32 @@ func NewBioBase() *BioBase {
 	body.AddShape(circle)
 	body.IgnoreGravity = true
 	bio := &BioBase{
-		name:       "",
-		bodyViewId: 0,
-		body:       body,
-		scene:      nil,
+		enableViewAOI: true,
+		name:          "",
+		bodyViewId:    0,
+		body:          body,
+		scene:         nil,
 		moveState: &MoveState{
 			running:       false,
 			moveCheckFunc: nil,
 			quit:          make(chan struct{}, 1),
 		},
-		viewAOI: &CircleAOI{
-			radius:  128,
-			body:    nil,
-			running: false,
-			quit:    make(chan struct{}, 1),
-		},
-		job:  make(chan func(), 512),
-		quit: make(chan struct{}, 1),
+		viewAOI: NewCircleAOI(160),
+		job:     make(chan func(), 256),
+		quit:    make(chan struct{}, 1),
 	}
 	bio.moveState.moveCheckFunc = bio.MoveCheckFunc()
 	return bio
 }
 
+func (b *BioBase) Bioer() Bioer {
+	return b
+}
+
 func (b *BioBase) Run() {
+	if b.enableViewAOI == true {
+		go b.RunViewAOI()
+	}
 	for {
 		select {
 		case job, ok := <-b.job:
@@ -93,6 +93,8 @@ func (b *BioBase) Run() {
 			close(b.job)
 			if b.scene != nil {
 				b.scene.DeleteBio(b)
+				b.scene = nil
+				b.id = 0
 			}
 			b.quit <- struct{}{}
 			return
@@ -109,10 +111,6 @@ func (b *BioBase) DoJob(f func()) (err error) {
 func (b *BioBase) ShutDown() {
 	b.quit <- struct{}{}
 	<-b.quit
-}
-
-func (b *BioBase) Bioer() Bioer {
-	return b
 }
 
 func (b *BioBase) Name() string {
@@ -145,46 +143,16 @@ func (b *BioBase) SetScene(s *Scene) {
 	})
 }
 
-func (b *BioBase) X() float32 {
-	xC := make(chan float32, 1)
+func (b *BioBase) Body() *chipmunk.Body {
+	bodyC := make(chan *chipmunk.Body, 1)
 	err := b.DoJob(func() {
-		pos := b.body.Position()
-		xC <- float32(pos.X)
+		bodyC <- b.body.Clone()
 	})
 	if err != nil {
-		close(xC)
-		return 0
+		close(bodyC)
+		return nil
 	}
-	return <-xC
-}
-
-func (b *BioBase) SetX(x float32) {
-	b.DoJob(func() {
-		newPos := b.body.Position()
-		newPos.X = vect.Float(x)
-		b.body.SetPosition(newPos)
-	})
-}
-
-func (b *BioBase) Y() float32 {
-	yC := make(chan float32, 1)
-	err := b.DoJob(func() {
-		pos := b.body.Position()
-		yC <- float32(pos.Y)
-	})
-	if err != nil {
-		close(yC)
-		return 0
-	}
-	return <-yC
-}
-
-func (b *BioBase) SetY(y float32) {
-	b.DoJob(func() {
-		newPos := b.body.Position()
-		newPos.Y = vect.Float(y)
-		b.body.SetPosition(newPos)
-	})
+	return <-bodyC
 }
 
 func (b *BioBase) Pos() Pos {
@@ -209,21 +177,16 @@ func (b *BioBase) SetPos(p Pos) {
 	})
 }
 
-func (b *BioBase) Body() *chipmunk.Body {
-	bodyC := make(chan *chipmunk.Body, 1)
-	err := b.DoJob(func() {
-		bodyC <- b.body.Clone()
-	})
-	if err != nil {
-		close(bodyC)
-		return nil
-	}
-	return <-bodyC
-}
-
 func (b *BioBase) SetId(id int) {
 	b.DoJob(func() {
 		b.id = id
+	})
+}
+
+func (b *BioBase) SetIdAndScene(id int, scene *Scene) {
+	b.DoJob(func() {
+		b.id = id
+		b.scene = scene
 	})
 }
 
@@ -237,6 +200,19 @@ func (b *BioBase) Id() int {
 		return 0
 	}
 	return <-idC
+}
+
+func (b *BioBase) ClientCallPublisher() ClientCallPublisher {
+	return b
+}
+
+func (b *BioBase) PublishClientCall(c *ClientCall) {
+	b.DoJob(func() {
+		if b.scene == nil {
+			return
+		}
+		b.scene.DispatchClientCall(b.ClientCallPublisher(), c)
+	})
 }
 
 func (b *BioBase) MoveCheckFunc() func(bool) bool {
@@ -263,7 +239,7 @@ func (b *BioBase) Move(x float32, y float32) {
 		close(moveCheckC)
 		return
 	}
-	timeC := time.Tick((1 / 60) * time.Second) // 60 fps
+	timeC := time.Tick((1.0 * time.Second / 60.0)) // 60 fps
 	defer func() {
 		b.DoJob(func() {
 			b.moveState.running = false
@@ -276,13 +252,18 @@ func (b *BioBase) Move(x float32, y float32) {
 				moveCheck := b.moveState.moveCheckFunc(true)
 				if moveCheck == false {
 					moveCheckC <- false
+					close(moveCheckC)
 					return
 				}
 				// TODO
 				// imple move
 				moveCheckC <- true
 			})
-			if err != nil || <-moveCheckC == false {
+			if err != nil {
+				return
+			}
+			mCheck, ok := <-moveCheckC
+			if ok == false || mCheck == false {
 				return
 			}
 		case <-b.moveState.quit:
@@ -300,25 +281,69 @@ func (b *BioBase) ShutDownMove() {
 }
 
 type CircleAOI struct {
+	running bool
 	radius  float32
 	body    *chipmunk.Body
-	bios    Bioer
-	running bool
+	bioers  map[Bioer]struct{}
 	quit    chan struct{}
 }
 
+func NewCircleAOI(r float32) *CircleAOI {
+	body := chipmunk.NewBody(1, 1)
+	circle := chipmunk.NewCircle(vect.Vector_Zero, r)
+	circle.IsSensor = true
+	body.SetPosition(vect.Vector_Zero)
+	body.AddShape(circle)
+	body.IgnoreGravity = true
+	return &CircleAOI{
+		running: false,
+		radius:  r,
+		body:    body,
+		bioers:  make(map[Bioer]struct{}),
+		quit:    make(chan struct{}, 1),
+	}
+}
+
 func (b *BioBase) RunViewAOI() {
-	timeC := time.Tick((1 / 60) * time.Second) // 60 fps
+	// TODO
+	// check b is in scene before run
+	timeC := time.Tick(100.0 * time.Millisecond)
 	for {
 		select {
 		case <-timeC:
-			// TODO
-			// 1. scan bios from scene like scene.Bios()
-			// and update view bios.
-			// 2. imple onenter and onleave callback for
-			// bio enter or leave aoi
+			err := b.DoJob(func() {
+				bioers := b.scene.Bioers()
+				if bioers == nil {
+					return
+				}
+				bioerBodys := make([]*chipmunk.Body, 0)
+				for _, bioer := range bioers {
+					body := bioer.Body()
+					if body == nil {
+						continue
+					}
+					body.SetVelocity(0, 0)
+					body.IgnoreGravity = true
+					bioerBodys = append(bioerBodys, body)
+				}
+				// TODO
+				// imple bioerBodys collide detect with viewaoi's body
+				// space := chipmunk.NewSpace()
+				// space.AddBody
+			})
+			if err != nil {
+				return
+			}
 		case <-b.viewAOI.quit:
 			return
 		}
 	}
+}
+
+func (b *BioBase) ShutDownViewAOI() {
+	b.DoJob(func() {
+		if b.viewAOI.running {
+			b.viewAOI.quit <- struct{}{}
+		}
+	})
 }
