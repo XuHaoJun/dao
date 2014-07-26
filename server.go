@@ -62,6 +62,11 @@ func (conn *wsConn) SendJSON(msg interface{}) (err error) {
 	return
 }
 
+func (conn *wsConn) SendMsg(msg interface{}) (err error) {
+	err = conn.SendJSON(msg)
+	return
+}
+
 func (conn *wsConn) Send(msg []byte) (err error) {
 	defer handleErrSendCloseChanel(&err)
 	conn.send <- msg

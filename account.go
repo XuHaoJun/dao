@@ -50,7 +50,7 @@ func NewAccount(username string, password string, w *World) *Account {
 		world:    w,
 		chars:    []*Char{},
 		isOnline: false,
-		job:      make(chan func(), 128),
+		job:      make(chan func(), 64),
 		quit:     make(chan struct{}, 1),
 	}
 	return a
@@ -202,7 +202,7 @@ func (a *Account) CreateChar(name string) {
 				Method:   "errCreateChar",
 				Params:   nil,
 			}
-			a.sock.SendJSON(clientCall)
+			a.sock.SendMsg(clientCall)
 			return
 		}
 		foundChar := struct{ Name string }{}
@@ -217,7 +217,7 @@ func (a *Account) CreateChar(name string) {
 				Method:   "errCreateChar",
 				Params:   nil,
 			}
-			a.sock.SendJSON(clientCall)
+			a.sock.SendMsg(clientCall)
 			return
 		} else if err == mgo.ErrNotFound {
 			char := NewChar(name, a)
@@ -234,7 +234,7 @@ func (a *Account) CreateChar(name string) {
 			// 	Method:   "setAndShowChars",
 			// 	Params:   nil,
 			// }
-			// a.sock.SendJSON(clientCall)
+			// a.sock.SendMsg(clientCall)
 		}
 	})
 }

@@ -126,7 +126,7 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 				Method:   "errLoginAccount",
 				Params:   nil,
 			}
-			sock.SendJSON(clientCall)
+			sock.SendMsg(clientCall)
 			close(accC)
 			return
 		}
@@ -143,7 +143,7 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 				Method:   "errLoginAccount",
 				Params:   nil,
 			}
-			sock.SendJSON(clientCall)
+			sock.SendMsg(clientCall)
 			close(accC)
 			return
 		}
@@ -161,7 +161,7 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 			Method:   "setAccount",
 			Params:   []interface{}{username, charClients},
 		}
-		sock.SendJSON(clientCall)
+		sock.SendMsg(clientCall)
 		accC <- acc
 		w.logger.Println("Account:", acc.username, "Logined.")
 	}
