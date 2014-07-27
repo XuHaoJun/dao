@@ -37,7 +37,8 @@ type BioBase struct {
 	moveState  *MoveState
 	// aoi
 	enableViewAOI bool
-	viewAOI       *CircleAOI
+	viewAOIRadius float32
+	viewAOI       *ViewAOI
 	// base
 	job  chan func()
 	quit chan struct{}
@@ -56,21 +57,22 @@ func NewBioBase() *BioBase {
 	body.AddShape(circle)
 	body.IgnoreGravity = true
 	bio := &BioBase{
-		enableViewAOI: true,
-		name:          "",
-		bodyViewId:    0,
-		body:          body,
-		scene:         nil,
+		name:       "",
+		bodyViewId: 0,
+		body:       body,
+		scene:      nil,
 		moveState: &MoveState{
 			running:       false,
 			moveCheckFunc: nil,
 			quit:          make(chan struct{}, 1),
 		},
-		viewAOI: NewCircleAOI(160),
-		job:     make(chan func(), 256),
-		quit:    make(chan struct{}, 1),
+		enableViewAOI: true,
+		viewAOIRadius: 160.0,
+		job:           make(chan func(), 256),
+		quit:          make(chan struct{}, 1),
 	}
 	bio.moveState.moveCheckFunc = bio.MoveCheckFunc()
+	bio.viewAOI = NewViewAOI(bio.viewAOIRadius)
 	return bio
 }
 
@@ -304,6 +306,44 @@ func NewCircleAOI(r float32) *CircleAOI {
 	}
 }
 
+type ViewAOI struct {
+	*CircleAOI
+	OnBioEnterFunc func(enter Bioer)
+	OnBioLeaveFunc func(leaver Bioer)
+}
+
+func NewViewAOI(r float32) *ViewAOI {
+	aoi := &ViewAOI{NewCircleAOI(r), nil, nil}
+	return aoi
+}
+
+type ViewAOICallbacks struct {
+	inAreaBioers map[Bioer]struct{}
+}
+
+func NewViewAOICallbacks() *ViewAOICallbacks {
+	return &ViewAOICallbacks{
+		make(map[Bioer]struct{}),
+	}
+}
+
+func (v *ViewAOICallbacks) CollisionEnter(arbiter *chipmunk.Arbiter) bool {
+	switch val := arbiter.BodyB.UserData.(type) {
+	case Bioer:
+		v.inAreaBioers[val] = struct{}{}
+		// case Itemer:
+	}
+	return false
+}
+
+func (v *ViewAOICallbacks) CollisionPreSolve(arbiter *chipmunk.Arbiter) bool {
+	return false
+}
+
+func (v *ViewAOICallbacks) CollisionPostSolve(arbiter *chipmunk.Arbiter) {}
+
+func (v *ViewAOICallbacks) CollisionExit(arbiter *chipmunk.Arbiter) {}
+
 func (b *BioBase) RunViewAOI() {
 	// TODO
 	// check b is in scene before run
@@ -312,24 +352,47 @@ func (b *BioBase) RunViewAOI() {
 		select {
 		case <-timeC:
 			err := b.DoJob(func() {
+				if b.scene == nil {
+					return
+				}
 				bioers := b.scene.Bioers()
 				if bioers == nil {
 					return
 				}
-				bioerBodys := make([]*chipmunk.Body, 0)
+				space := chipmunk.NewSpace()
+				b.viewAOI.body.CallbackHandler = NewViewAOICallbacks()
+				space.AddBody(b.viewAOI.body)
 				for _, bioer := range bioers {
 					body := bioer.Body()
 					if body == nil {
 						continue
 					}
+					body.UserData = bioer
 					body.SetVelocity(0, 0)
 					body.IgnoreGravity = true
-					bioerBodys = append(bioerBodys, body)
+					space.AddBody(body)
 				}
-				// TODO
-				// imple bioerBodys collide detect with viewaoi's body
-				// space := chipmunk.NewSpace()
-				// space.AddBody
+				space.Step(1)
+				foundBioers := b.viewAOI.body.
+					CallbackHandler.(*ViewAOICallbacks).
+					inAreaBioers
+				for bioer, _ := range b.viewAOI.bioers {
+					_, in := foundBioers[bioer]
+					if in == false {
+						delete(b.viewAOI.bioers, bioer)
+						if b.viewAOI.OnBioLeaveFunc != nil {
+							b.viewAOI.OnBioLeaveFunc(bioer)
+						}
+					} else {
+						delete(foundBioers, bioer)
+					}
+				}
+				for bioer, _ := range foundBioers {
+					b.viewAOI.bioers[bioer] = struct{}{}
+					if b.viewAOI.OnBioEnterFunc != nil {
+						b.viewAOI.OnBioEnterFunc(bioer)
+					}
+				}
 			})
 			if err != nil {
 				return
