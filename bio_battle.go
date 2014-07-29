@@ -231,9 +231,11 @@ func (b *BattleBioBase) MoveCheckFunc() func(bool) bool {
 		if skipCheckRunning == true {
 			tmpRunning = false
 		}
-		if b.isDied == true ||
+		reached := vect.Equals(b.moveState.targetPos, b.body.Position())
+		if reached == true ||
 			b.scene == nil ||
-			tmpRunning == true {
+			tmpRunning == true ||
+			b.isDied == true {
 			return false
 		}
 		b.moveState.running = true

@@ -50,6 +50,7 @@ type MoveState struct {
 	targetPos     vect.Vect
 	baseVelocity  vect.Vect
 	lastVelocity  vect.Vect
+	lastPosition  vect.Vect
 	lastAngle     vect.Float
 	running       bool
 	quit          chan struct{}
@@ -82,6 +83,7 @@ func NewBioBase() *BioBase {
 	}
 	bio.moveState.moveCheckFunc = bio.MoveCheckFunc()
 	bio.viewAOI = NewViewAOI(bio.viewAOIRadius)
+	bio.viewAOI.viewAOICheckFunc = bio.ViewAOICheckFunc()
 	return bio
 }
 
@@ -327,11 +329,12 @@ func (b *BioBase) Move(pos vect.Vect) {
 				} else if moveVect.Y == 0 {
 					moveVelocity.Y = 0
 				}
-				b.moveState.lastVelocity = moveVelocity
-				b.moveState.lastAngle = b.body.Angle()
 				b.body.SetVelocity(float32(moveVelocity.X),
 					float32(moveVelocity.Y))
-				// b.body.lookAt(b.moveState.targetPos)
+				b.body.LookAt(b.moveState.targetPos)
+				b.moveState.lastVelocity = b.body.Velocity()
+				b.moveState.lastPosition = b.body.Position()
+				b.moveState.lastAngle = b.body.Angle()
 				space.Step(1.0 / 60.0)
 			})
 			if err != nil {
@@ -381,12 +384,13 @@ func NewCircleAOI(r float32) *CircleAOI {
 
 type ViewAOI struct {
 	*CircleAOI
-	OnBioEnterFunc func(enter Bioer)
-	OnBioLeaveFunc func(leaver Bioer)
+	viewAOICheckFunc func(skipCheckRunning bool) bool
+	OnBioEnterFunc   func(enter Bioer)
+	OnBioLeaveFunc   func(leaver Bioer)
 }
 
 func NewViewAOI(r float32) *ViewAOI {
-	aoi := &ViewAOI{NewCircleAOI(r), nil, nil}
+	aoi := &ViewAOI{NewCircleAOI(r), nil, nil, nil}
 	return aoi
 }
 
@@ -417,16 +421,41 @@ func (v *ViewAOICallbacks) CollisionPostSolve(arbiter *chipmunk.Arbiter) {}
 
 func (v *ViewAOICallbacks) CollisionExit(arbiter *chipmunk.Arbiter) {}
 
+func (b *BioBase) ViewAOICheckFunc() func(bool) bool {
+	return func(skipCheckRunning bool) bool {
+		tmpRunning := (b.viewAOI.running == true)
+		if skipCheckRunning == true {
+			tmpRunning = false
+		}
+		if b.scene == nil ||
+			tmpRunning == true {
+			return false
+		}
+		b.viewAOI.running = true
+		return true
+	}
+}
+
 func (b *BioBase) RunViewAOI() {
-	// TODO
-	// check b is in scene before run
+	viewAOICheckC := make(chan bool, 1)
+	err := b.DoJob(func() {
+		b.viewAOI.viewAOICheckFunc(false)
+	})
+	if err != nil || <-viewAOICheckC == false {
+		close(viewAOICheckC)
+		return
+	}
 	timeC := time.Tick(100.0 * time.Millisecond)
 	for {
 		select {
 		case <-timeC:
 			err := b.DoJob(func() {
-				if b.scene == nil {
+				viewAOICheck := b.viewAOI.viewAOICheckFunc(true)
+				if viewAOICheck == false {
+					viewAOICheckC <- false
 					return
+				} else {
+					viewAOICheckC <- true
 				}
 				bioers := b.scene.Bioers()
 				if bioers == nil {
@@ -468,6 +497,10 @@ func (b *BioBase) RunViewAOI() {
 				}
 			})
 			if err != nil {
+				return
+			}
+			check, ok := <-viewAOICheckC
+			if ok == false || check == false {
 				return
 			}
 		case <-b.viewAOI.quit:
