@@ -1,7 +1,7 @@
 package dao
 
 import (
-	"github.com/vova616/chipmunk"
+	"github.com/xuhaojun/chipmunk"
 )
 
 type BattleInfo struct {

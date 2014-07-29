@@ -3,8 +3,8 @@ package dao
 import (
 	"time"
 
-	"github.com/vova616/chipmunk"
-	"github.com/vova616/chipmunk/vect"
+	"github.com/xuhaojun/chipmunk"
+	"github.com/xuhaojun/chipmunk/vect"
 )
 
 type BattleBioer interface {

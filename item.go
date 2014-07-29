@@ -1,7 +1,7 @@
 package dao
 
 import (
-	"github.com/vova616/chipmunk/vect"
+	"github.com/xuhaojun/chipmunk/vect"
 	"labix.org/v2/mgo/bson"
 	"sync"
 )

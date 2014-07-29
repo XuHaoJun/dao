@@ -4,8 +4,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/vova616/chipmunk"
-	"github.com/vova616/chipmunk/vect"
+	"github.com/xuhaojun/chipmunk"
+	"github.com/xuhaojun/chipmunk/vect"
 )
 
 type Bioer interface {
@@ -331,6 +331,7 @@ func (b *BioBase) Move(pos vect.Vect) {
 				b.moveState.lastAngle = b.body.Angle()
 				b.body.SetVelocity(float32(moveVelocity.X),
 					float32(moveVelocity.Y))
+				// b.body.lookAt(b.moveState.targetPos)
 				space.Step(1.0 / 60.0)
 			})
 			if err != nil {

@@ -2,8 +2,8 @@ package dao
 
 import (
 	"fmt"
-	"github.com/vova616/chipmunk"
-	"github.com/vova616/chipmunk/vect"
+	"github.com/xuhaojun/chipmunk"
+	"github.com/xuhaojun/chipmunk/vect"
 )
 
 type Pos struct {
