@@ -3,6 +3,7 @@ package dao
 import (
 	"fmt"
 	"github.com/vova616/chipmunk"
+	"github.com/vova616/chipmunk/vect"
 )
 
 type Pos struct {
@@ -24,7 +25,8 @@ type Scene struct {
 	chars map[int]*Char
 	items map[int]Itemer
 	//
-	staticBody map[*chipmunk.Body]struct{}
+	wallBodys   []*chipmunk.Body
+	staticBodys map[*chipmunk.Body]struct{}
 	//
 	job  chan func()
 	quit chan struct{}
@@ -42,14 +44,40 @@ type SceneInfo struct {
 
 func NewScene(name string) *Scene {
 	return &Scene{
-		name:  name,
-		mobs:  make(map[int]*Mob),
-		npcs:  make(map[int]*Npc),
-		chars: make(map[int]*Char),
-		items: make(map[int]Itemer),
-		job:   make(chan func(), 1024),
-		quit:  make(chan struct{}, 1),
+		name:        name,
+		mobs:        make(map[int]*Mob),
+		npcs:        make(map[int]*Npc),
+		chars:       make(map[int]*Char),
+		items:       make(map[int]Itemer),
+		wallBodys:   make([]*chipmunk.Body, 0),
+		staticBodys: make(map[*chipmunk.Body]struct{}),
+		job:         make(chan func(), 1024),
+		quit:        make(chan struct{}, 1),
 	}
+}
+
+func NewBoxScene(name string, w vect.Float, h vect.Float) *Scene {
+	s := NewScene(name)
+	boxWall := chipmunk.NewBodyStatic()
+	wallTop := chipmunk.NewSegment(vect.Vect{X: -w / 2, Y: h / 2}, vect.Vect{X: w / 2, Y: h / 2}, 0)
+	wallTop.SetFriction(0)
+	wallTop.SetElasticity(0)
+	boxWall.AddShape(wallTop)
+	wallBottom := chipmunk.NewSegment(vect.Vect{X: -w / 2, Y: -h / 2}, vect.Vect{X: w / 2, Y: -h / 2}, 0)
+	wallBottom.SetFriction(0)
+	wallBottom.SetElasticity(0)
+	boxWall.AddShape(wallBottom)
+	wallLeft := chipmunk.NewSegment(vect.Vect{X: -w / 2, Y: h / 2}, vect.Vect{X: -w / 2, Y: -h / 2}, 0)
+	wallLeft.SetFriction(0)
+	wallLeft.SetElasticity(0)
+	boxWall.AddShape(wallLeft)
+	wallRight := chipmunk.NewSegment(vect.Vect{X: w / 2, Y: h / 2}, vect.Vect{X: w / 2, Y: -h / 2}, 0)
+	wallRight.SetFriction(0)
+	wallRight.SetElasticity(0)
+	boxWall.AddShape(wallRight)
+	s.wallBodys = append(s.wallBodys, boxWall)
+	s.staticBodys[boxWall] = struct{}{}
+	return s
 }
 
 func (s *Scene) Run() {
@@ -219,6 +247,24 @@ func (s *Scene) AddBio(b SceneBioer) {
 			fmt.Println("you should never look this line.")
 		}
 	})
+}
+
+func (s *Scene) StaticBodys() []*chipmunk.Body {
+	sbodysC := make(chan []*chipmunk.Body, 1)
+	err := s.DoJob(func() {
+		sbodys := make([]*chipmunk.Body, len(s.staticBodys))
+		i := 0
+		for body, _ := range s.staticBodys {
+			sbodys[i] = body.Clone()
+			i++
+		}
+		sbodysC <- sbodys
+	})
+	if err != nil {
+		close(sbodysC)
+		return nil
+	}
+	return <-sbodysC
 }
 
 type ClientCallPublisher interface {

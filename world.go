@@ -31,9 +31,8 @@ type WorldClientCall interface {
 
 func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 	db, err := NewDaoDB(mgourl, dbname)
-	baseScene := NewScene("daoCity")
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	w := &World{
 		name:     name,
@@ -45,6 +44,7 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		job:      make(chan func(), 512),
 		quit:     make(chan struct{}, 1),
 	}
+	baseScene := NewBoxScene("daoCity", 500, 500)
 	w.scenes[baseScene.name] = baseScene
 	return w, nil
 }
