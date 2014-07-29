@@ -439,13 +439,18 @@ func (b *BioBase) ViewAOICheckFunc() func(bool) bool {
 func (b *BioBase) RunViewAOI() {
 	viewAOICheckC := make(chan bool, 1)
 	err := b.DoJob(func() {
-		b.viewAOI.viewAOICheckFunc(false)
+		viewAOICheckC <- b.viewAOI.viewAOICheckFunc(false)
 	})
 	if err != nil || <-viewAOICheckC == false {
 		close(viewAOICheckC)
 		return
 	}
 	timeC := time.Tick(100.0 * time.Millisecond)
+	defer func() {
+		b.DoJob(func() {
+			b.viewAOI.running = false
+		})
+	}()
 	for {
 		select {
 		case <-timeC:
