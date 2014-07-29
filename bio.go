@@ -329,7 +329,8 @@ func (b *BioBase) Move(pos vect.Vect) {
 				}
 				b.moveState.lastVelocity = moveVelocity
 				b.moveState.lastAngle = b.body.Angle()
-				b.body.SetVelocity(float32(moveVect.X), float32(moveVect.Y))
+				b.body.SetVelocity(float32(moveVelocity.X),
+					float32(moveVelocity.Y))
 				space.Step(1.0 / 60.0)
 			})
 			if err != nil {
