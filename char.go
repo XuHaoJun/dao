@@ -124,12 +124,16 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.usingEquips = cDump.UsingEquips.Load()
 	c.bodyViewId = cDump.BodyViewId
 	body := chipmunk.NewBody(1, 1)
+	body.IgnoreGravity = true
+	body.SetVelocity(0, 0)
+	body.SetMoment(chipmunk.Inf)
 	c.body = body
 	c.body.SetPosition(vect.Vect{
 		X: vect.Float(cDump.LastScene.X),
 		Y: vect.Float(cDump.LastScene.Y)})
 	circle := chipmunk.NewCircle(vect.Vector_Zero, cDump.BodyShape.Radius)
-	circle.IsSensor = true
+	circle.SetFriction(0)
+	circle.SetElasticity(0)
 	c.body.AddShape(circle)
 	c.DoCalcAttributes()
 	return c
@@ -324,14 +328,14 @@ func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall
 		// }
 		// TODO
 		// add itemPublisher in the future
-		bioPublisher, ok := publisher.(Bioer)
-		if !ok {
-			return
-		}
-		_, found := c.viewAOI.bioers[bioPublisher]
-		if found {
-			c.sock.SendMsg(cc)
-		}
+		// bioPublisher, ok := publisher.(Bioer)
+		// if !ok {
+		// 	return
+		// }
+		// _, found := c.viewAOI.bioers[bioPublisher]
+		// if found {
+		// 	c.sock.SendMsg(cc)
+		// }
 	})
 }
 

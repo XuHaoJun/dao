@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"math"
 	"time"
 
 	"github.com/vova616/chipmunk"
@@ -14,7 +15,7 @@ type Bioer interface {
 	DoJob(func()) error
 	Run()
 	ShutDown()
-	Move(x float32, y float32)
+	Move(vect.Vect)
 	Body() *chipmunk.Body
 }
 
@@ -46,6 +47,10 @@ type BioBase struct {
 
 type MoveState struct {
 	moveCheckFunc func(skilCheckRunning bool) bool
+	targetPos     vect.Vect
+	baseVelocity  vect.Vect
+	lastVelocity  vect.Vect
+	lastAngle     vect.Float
 	running       bool
 	quit          chan struct{}
 }
@@ -53,7 +58,11 @@ type MoveState struct {
 func NewBioBase() *BioBase {
 	body := chipmunk.NewBody(1, 1)
 	circle := chipmunk.NewCircle(vect.Vector_Zero, float32(32.0))
+	circle.SetFriction(0)
+	circle.SetElasticity(0)
 	body.SetPosition(vect.Vector_Zero)
+	body.SetVelocity(0, 0)
+	body.SetMoment(chipmunk.Inf)
 	body.AddShape(circle)
 	body.IgnoreGravity = true
 	bio := &BioBase{
@@ -62,9 +71,9 @@ func NewBioBase() *BioBase {
 		body:       body,
 		scene:      nil,
 		moveState: &MoveState{
-			running:       false,
-			moveCheckFunc: nil,
-			quit:          make(chan struct{}, 1),
+			running:      false,
+			baseVelocity: vect.Vect{X: 10, Y: 10},
+			quit:         make(chan struct{}, 1),
 		},
 		enableViewAOI: true,
 		viewAOIRadius: 160.0,
@@ -217,13 +226,17 @@ func (b *BioBase) PublishClientCall(c *ClientCall) {
 	})
 }
 
+// FIXME
+// may be check move target pos is same with bio's pos
 func (b *BioBase) MoveCheckFunc() func(bool) bool {
 	return func(skipCheckRunning bool) bool {
 		tmpRunning := (b.moveState.running == true)
 		if skipCheckRunning == true {
 			tmpRunning = false
 		}
-		if b.scene == nil ||
+		reached := vect.Equals(b.moveState.targetPos, b.body.Position())
+		if reached == true ||
+			b.scene == nil ||
 			tmpRunning == true {
 			return false
 		}
@@ -232,10 +245,25 @@ func (b *BioBase) MoveCheckFunc() func(bool) bool {
 	}
 }
 
-func (b *BioBase) Move(x float32, y float32) {
+func (b *BioBase) SetMoveTo(pos vect.Vect) {
+	b.DoJob(func() {
+		b.moveState.targetPos = pos
+	})
+}
+
+func (b *BioBase) Move(pos vect.Vect) {
 	moveCheckC := make(chan bool, 1)
 	err := b.DoJob(func() {
-		moveCheckC <- b.moveState.moveCheckFunc(false)
+		b.moveState.targetPos = pos
+		if b.moveState.moveCheckFunc(false) == true {
+			if b.moveState.targetPos == b.body.Position() {
+				moveCheckC <- false
+			} else {
+				moveCheckC <- true
+			}
+		} else {
+			moveCheckC <- false
+		}
 	})
 	if err != nil || <-moveCheckC == false {
 		close(moveCheckC)
@@ -245,6 +273,7 @@ func (b *BioBase) Move(x float32, y float32) {
 	defer func() {
 		b.DoJob(func() {
 			b.moveState.running = false
+			b.body.SetVelocity(0.0, 0.0)
 		})
 	}()
 	for {
@@ -254,12 +283,54 @@ func (b *BioBase) Move(x float32, y float32) {
 				moveCheck := b.moveState.moveCheckFunc(true)
 				if moveCheck == false {
 					moveCheckC <- false
-					close(moveCheckC)
 					return
+				} else {
+					moveCheckC <- true
 				}
+				statics := b.scene.StaticBodys()
+				space := chipmunk.NewSpace()
+				for _, body := range statics {
+					space.AddBody(body)
+				}
+				space.AddBody(b.body)
 				// TODO
-				// imple move
-				moveCheckC <- true
+				// 1. bio need lookat target x y
+				// 2. send clientcall to chars on velocity or angle changed
+				moveVelocity := b.moveState.baseVelocity
+				moveVect := vect.Sub(b.moveState.targetPos, b.body.Position())
+				// check if this move one step > move vect directly reach it.
+				if math.Abs(float64((1.0/60.0)*(moveVelocity.X))) >
+					math.Abs(float64(moveVect.X)) {
+					reachX := vect.Vect{
+						X: b.moveState.targetPos.X,
+						Y: b.body.Position().Y,
+					}
+					b.body.SetPosition(reachX)
+					moveVect.X = 0
+				}
+				if math.Abs(float64((1.0/60.0)*(moveVelocity.Y))) >
+					math.Abs(float64(moveVect.Y)) {
+					reachY := vect.Vect{
+						X: b.body.Position().X,
+						Y: b.moveState.targetPos.Y,
+					}
+					b.body.SetPosition(reachY)
+					moveVect.Y = 0
+				}
+				if moveVect.X < 0 {
+					moveVelocity.X *= -1
+				} else if moveVect.X == 0 {
+					moveVelocity.X = 0
+				}
+				if moveVect.Y < 0 {
+					moveVelocity.Y *= -1
+				} else if moveVect.Y == 0 {
+					moveVelocity.Y = 0
+				}
+				b.moveState.lastVelocity = moveVelocity
+				b.moveState.lastAngle = b.body.Angle()
+				b.body.SetVelocity(float32(moveVect.X), float32(moveVect.Y))
+				space.Step(1.0 / 60.0)
 			})
 			if err != nil {
 				return
