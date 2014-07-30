@@ -8,11 +8,12 @@ import (
 )
 
 type BattleBioer interface {
+	Bioer
 	// states
 	BattleInfo() *BattleInfo
 	Level() int
 	IsDied() bool
-	DecHp(n int, killer BattleBioer) bool
+	DecHp(n int, killer BattleBioer) (bool, error)
 	DecMp(n int)
 	CalcAttributes()
 	DoCalcAttributes()
@@ -51,7 +52,7 @@ type BattleBioBase struct {
 }
 
 type NormalAttackState struct {
-	attackCheckFunc func(b2 BattleBioer, skipCheckRunning bool) bool
+	attackCheckFunc func(b2 BattleBioer, skipCheckRunning bool) (bool, *BattleInfo)
 	attackTimeStep  time.Duration
 	attackRadius    float32
 	running         bool
@@ -171,7 +172,7 @@ func (b *BattleBioBase) BattleInfo() *BattleInfo {
 	return <-battleC
 }
 
-func (b *BattleBioBase) DecHp(n int, killer BattleBioer) bool {
+func (b *BattleBioBase) DecHp(n int, killer BattleBioer) (bool, error) {
 	killedC := make(chan bool, 1)
 	err := b.DoJob(func() {
 		if b.hp <= 0 {
@@ -193,9 +194,9 @@ func (b *BattleBioBase) DecHp(n int, killer BattleBioer) bool {
 	})
 	if err != nil {
 		close(killedC)
-		return false
+		return false, err
 	}
-	return <-killedC
+	return <-killedC, nil
 }
 
 func (b *BattleBioBase) DecMp(n int) {
@@ -260,28 +261,49 @@ func (na *NormalAttackCallbacks) CollisionPostSolve(arbiter *chipmunk.Arbiter) {
 
 func (na *NormalAttackCallbacks) CollisionExit(arbiter *chipmunk.Arbiter) {}
 
-func (b *BattleBioBase) NormalAttackCheckFunc() func(BattleBioer, bool) bool {
-	return func(b2 BattleBioer, skipCheckRunning bool) bool {
+func (b *BattleBioBase) NormalAttackCheckRange(targetBody *chipmunk.Body) bool {
+	space := chipmunk.NewSpace()
+	attackRange := chipmunk.NewBody(1, 1)
+	rangeShape := chipmunk.NewCircle(
+		vect.Vector_Zero,
+		b.normalAttackState.attackRadius)
+	rangeShape.IsSensor = true
+	attackRange.AddShape(rangeShape)
+	attackRange.SetPosition(b.body.Position())
+	check := &NormalAttackCallbacks{false}
+	attackRange.CallbackHandler = check
+	space.AddBody(attackRange)
+	space.AddBody(targetBody)
+	space.Step(0.1)
+	return check.isOverlap
+}
+
+func (b *BattleBioBase) NormalAttackCheckFunc() func(BattleBioer, bool) (bool, *BattleInfo) {
+	return func(b2 BattleBioer, skipCheckRunning bool) (bool, *BattleInfo) {
 		tmpRunning := (b.normalAttackState.running == true)
 		if skipCheckRunning == true {
 			tmpRunning = false
 		}
-		if b.isDied ||
+		target := b2.BattleInfo()
+		if target == nil ||
+			b.isDied ||
 			b.BattleBioer() == b2 ||
-			b2.IsDied() ||
+			target.isDied ||
 			b.scene == nil ||
-			tmpRunning == true {
-			return false
+			tmpRunning == true ||
+			b.NormalAttackCheckRange(target.body) == false {
+			return false, nil
 		}
 		b.normalAttackState.running = true
-		return true
+		return true, target
 	}
 }
 
 func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
 	attackCheckC := make(chan bool, 1)
 	err := b.DoJob(func() {
-		attackCheckC <- b.normalAttackState.attackCheckFunc(b2, false)
+		check, _ := b.normalAttackState.attackCheckFunc(b2, false)
+		attackCheckC <- check
 	})
 	if err != nil || <-attackCheckC == false {
 		close(attackCheckC)
@@ -289,7 +311,6 @@ func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
 	}
 	attackTimeStepC := make(chan time.Duration, 1)
 	err = b.DoJob(func() {
-		b.normalAttackState.running = true
 		attackTimeStepC <- b.normalAttackState.attackTimeStep
 	})
 	if err != nil {
@@ -299,39 +320,15 @@ func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
 	timeC := time.Tick(<-attackTimeStepC)
 	defer func() {
 		b.DoJob(func() {
-			if b.normalAttackState.running {
-				b.normalAttackState.running = false
-			}
+			b.normalAttackState.running = false
 		})
 	}()
 	for {
 		select {
 		case <-timeC:
 			err = b.DoJob(func() {
-				attackCheck := b.normalAttackState.attackCheckFunc(b2, true)
-				if attackCheck == false {
-					attackCheckC <- false
-					return
-				}
-				target := b2.BattleInfo()
-				if target.isDied == true {
-					attackCheckC <- false
-					return
-				}
-				space := chipmunk.NewSpace()
-				attackRange := chipmunk.NewBody(1, 1)
-				rangeShape := chipmunk.NewCircle(
-					vect.Vector_Zero,
-					b.normalAttackState.attackRadius)
-				rangeShape.IsSensor = true
-				attackRange.AddShape(rangeShape)
-				attackRange.SetPosition(b.body.Position())
-				check := &NormalAttackCallbacks{false}
-				attackRange.CallbackHandler = check
-				space.AddBody(attackRange)
-				space.AddBody(target.body)
-				space.Step(0.1)
-				if check.isOverlap == false {
+				check, target := b.normalAttackState.attackCheckFunc(b2, true)
+				if check == false {
 					attackCheckC <- false
 					return
 				}
@@ -339,7 +336,11 @@ func (b *BattleBioBase) NormalAttack(b2 BattleBioer) {
 				if dmage < 0 {
 					dmage = 0
 				}
-				killed := b2.DecHp(dmage, b)
+				killed, err := b2.DecHp(dmage, b)
+				if err != nil {
+					attackCheckC <- false
+					return
+				}
 				if killed {
 					f := b.OnKillFunc()
 					f(b2)
