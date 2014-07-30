@@ -168,28 +168,6 @@ func (b *BioBase) Body() *chipmunk.Body {
 	return <-bodyC
 }
 
-func (b *BioBase) Pos() Pos {
-	posC := make(chan Pos, 1)
-	err := b.DoJob(func() {
-		pos := b.body.Position()
-		posC <- Pos{float32(pos.X), float32(pos.Y)}
-	})
-	if err != nil {
-		close(posC)
-		return Pos{}
-	}
-	return <-posC
-}
-
-func (b *BioBase) SetPos(p Pos) {
-	b.DoJob(func() {
-		x := vect.Float(p.X)
-		y := vect.Float(p.Y)
-		pos := vect.Vect{X: x, Y: y}
-		b.body.SetPosition(pos)
-	})
-}
-
 func (b *BioBase) SetId(id int) {
 	b.DoJob(func() {
 		b.id = id
@@ -332,10 +310,12 @@ func (b *BioBase) Move(pos vect.Vect) {
 				b.body.SetVelocity(float32(moveVelocity.X),
 					float32(moveVelocity.Y))
 				b.body.LookAt(b.moveState.targetPos)
-				b.moveState.lastVelocity = b.body.Velocity()
 				b.moveState.lastPosition = b.body.Position()
+				b.moveState.lastVelocity = b.body.Velocity()
 				b.moveState.lastAngle = b.body.Angle()
 				space.Step(1.0 / 60.0)
+				// TODO
+				// publish charclient if velocity or angle change
 			})
 			if err != nil {
 				return
