@@ -11,21 +11,19 @@ import (
 type Bioer interface {
 	Name() string
 	Id() int
+	GetId() int
 	SetId(int)
 	DoJob(func()) error
 	Run()
 	ShutDown()
 	Move(vect.Vect)
+	ShutDownMove()
+	SetMoveTo(vect.Vect)
 	Body() *chipmunk.Body
-}
-
-type SceneBioer interface {
-	Id() int
-	SetId(int)
 	Scene() *Scene
 	SetScene(*Scene)
+	GetScene() *Scene
 	SetIdAndScene(int, *Scene)
-	Body() *chipmunk.Body
 }
 
 // BioBase imple Bioer and SceneBioer
@@ -79,7 +77,7 @@ func NewBioBase() *BioBase {
 		enableViewAOI: true,
 		viewAOIRadius: 160.0,
 		job:           make(chan func(), 256),
-		quit:          make(chan struct{}, 1),
+		quit:          make(chan struct{}),
 	}
 	bio.moveState.moveCheckFunc = bio.MoveCheckFunc()
 	bio.viewAOI = NewViewAOI(bio.viewAOIRadius)
@@ -138,6 +136,14 @@ func (b *BioBase) Name() string {
 	return <-nameC
 }
 
+func (b *BioBase) GetId() int {
+	return b.id
+}
+
+func (b *BioBase) GetScene() *Scene {
+	return b.scene
+}
+
 func (b *BioBase) Scene() *Scene {
 	sceneC := make(chan *Scene, 1)
 	err := b.DoJob(func() {
@@ -172,6 +178,11 @@ func (b *BioBase) SetId(id int) {
 	b.DoJob(func() {
 		b.id = id
 	})
+}
+
+func (b *BioBase) DoSetIdAndScene(id int, scene *Scene) {
+	b.id = id
+	b.scene = scene
 }
 
 func (b *BioBase) SetIdAndScene(id int, scene *Scene) {

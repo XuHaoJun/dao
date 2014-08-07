@@ -29,16 +29,19 @@ type Char struct {
 	lastScene   *SceneInfo
 	saveScene   *SceneInfo
 	dzeny       int
+	//
+	pickRadius float32
+	pickRange  *chipmunk.Body
 }
 
 type CharClient struct {
-	Id         int    `json:"id"`
-	Name       string `json:"name"`
-	SlotIndex  int    `json:"slotindex"`
-	SceneName  string `json:"sceneName"`
-	BodyViewId int    `json:"bodyViewid"`
-	Level      int    `json:"level"`
-	IsDied     bool   `json:"isDied"`
+	Id            int    `json:"id"`
+	Name          string `json:"name"`
+	SlotIndex     int    `json:"slotIndex"`
+	LastSceneName string `json:"lastSceneName"`
+	BodyViewId    int    `json:"bodyViewid"`
+	Level         int    `json:"level"`
+	IsDied        bool   `json:"isDied"`
 	// main attribue
 	Str int `json:"str"`
 	Vit int `json:"vit"`
@@ -62,6 +65,8 @@ type CharDumpDB struct {
 	SlotIndex   int               `bson:"slotIndex"`
 	Name        string            `bson:"name"`
 	Level       int               `bson:"level"`
+	Hp          int               `bson:"hp"`
+	Mp          int               `bson:"mp"`
 	Str         int               `bson:"str"`
 	Vit         int               `bson:"vit"`
 	Wis         int               `bson:"wis"`
@@ -85,6 +90,8 @@ func (c *Char) DumpDB() *CharDumpDB {
 		SlotIndex:   c.slotIndex,
 		Name:        c.name,
 		Level:       c.level,
+		Hp:          c.hp,
+		Mp:          c.mp,
 		Str:         c.str,
 		Vit:         c.vit,
 		Wis:         c.wis,
@@ -113,6 +120,8 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c := NewChar(cDump.Name, acc)
 	c.slotIndex = cDump.SlotIndex
 	c.bsonId = cDump.Id
+	c.hp = cDump.Hp
+	c.mp = cDump.Mp
 	c.str = cDump.Str
 	c.vit = cDump.Vit
 	c.wis = cDump.Wis
@@ -158,6 +167,12 @@ func NewChar(name string, acc *Account) *Char {
 	c.vit = 1
 	c.wis = 1
 	c.spi = 1
+	c.pickRadius = 42.0
+	c.pickRange = chipmunk.NewBody(1, 1)
+	pickShape := chipmunk.NewCircle(vect.Vector_Zero, c.pickRadius)
+	pickShape.IsSensor = true
+	c.pickRange.IgnoreGravity = true
+	c.pickRange.AddShape(pickShape)
 	// replace default onkill func
 	c.BattleBioBase.OnKill = c.OnKillFunc()
 	return c
@@ -165,19 +180,19 @@ func NewChar(name string, acc *Account) *Char {
 
 func (c *Char) CharClient() *CharClient {
 	cc := &CharClient{
-		Id:         c.id,
-		Name:       c.name,
-		SlotIndex:  c.slotIndex,
-		SceneName:  c.scene.name,
-		BodyViewId: c.bodyViewId,
-		Level:      c.level,
-		IsDied:     c.isDied,
+		Id:            c.id,
+		Name:          c.name,
+		Level:         c.level,
+		SlotIndex:     c.slotIndex,
+		LastSceneName: c.lastScene.Name,
+		BodyViewId:    c.bodyViewId,
+		IsDied:        c.isDied,
 		//
 		Str: c.str,
 		Vit: c.vit,
 		Wis: c.wis,
 		Spi: c.spi,
-		//:,
+		//
 		Def:   c.def,
 		Mdef:  c.mdef,
 		Atk:   c.atk,
@@ -205,13 +220,12 @@ func (c *Char) Run() {
 			}
 			job()
 		case <-c.quit:
-			c.isOnline = false
 			if c.scene != nil {
 				c.scene.DeleteBio(c)
 				c.scene = nil
 				c.id = 0
 			}
-			close(c.job)
+			c.DoLogout()
 			c.quit <- struct{}{}
 			return
 		}
@@ -294,7 +308,7 @@ func (c *Char) OnKillFunc() func(target BattleBioer) {
 
 func (c *Char) NormalAttackByMid(mid int) {
 	c.DoJob(func() {
-		if mid < 0 {
+		if mid <= 0 || c.scene == nil {
 			return
 		}
 		mob := c.scene.FindMobById(mid)
@@ -305,17 +319,17 @@ func (c *Char) NormalAttackByMid(mid int) {
 	})
 }
 
+func (c *Char) DoLogout() {
+	if c.isOnline == false {
+		return
+	}
+	c.isOnline = false
+	c.DoSave()
+	c.account.world.logger.Println("Char:", c.name, "logouted.")
+}
+
 func (c *Char) Logout() {
-	c.DoJob(func() {
-		if c.isOnline == false {
-			return
-		}
-		c.isOnline = false
-		c.DoSave()
-		c.account.Logout()
-		c.ShutDown()
-		c.account.world.logger.Println("Char:", c.name, "logouted.")
-	})
+	c.account.Logout()
 }
 
 func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall) {
@@ -459,6 +473,9 @@ func (c *Char) DoPickItem(item Itemer) {
 	item.GetScene().DeleteItem(item)
 	item.DoSetScene(nil)
 }
+
+// TODO
+// func add pick item check func
 
 func (c *Char) PickItem(item Itemer) {
 	c.DoJob(func() {

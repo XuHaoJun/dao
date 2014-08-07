@@ -254,8 +254,8 @@ func (s *Server) HandleSignal() {
 }
 
 func (s *Server) ShutDown() {
-	s.wsHub.ShutDown()
 	s.world.ShutDown()
+	s.wsHub.ShutDown()
 }
 
 func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
@@ -284,31 +284,31 @@ func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
 
 func (s *Server) RunHTTP() {
 	m := martini.Classic()
-	// browser will download game client from /
-	// 	m.Get("/", func() string {
-	// 		return `<html><body><script src='//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
-	// <ul id=messages></ul><form><input id=message><input type="submit" id=send value=Send></form>
-	// <script>
-	// var c=new WebSocket("ws://" + location.hostname + ":"  + location.port + "/daows");
-	// c.onopen = function(){
-	//   c.onmessage = function(response){
-	//     console.log(response.data);
-	//     var newMessage = $('<li>').text(response.data);
-	//     $('#messages').append(newMessage);
-	//     $('#message').val('');
-	//   };
-	//   $('form').submit(function(){
-	//     c.send($('#message').val());
-	//     return false;
-	//   });
-	// }
-	// </script></body></html>`
-	// 	})
-	// handle game connection by websocket
+	m.Get("/testPage", s.testPage)
 	go s.wsHub.Run()
 	m.Map(s)
 	m.Get("/daows", serveWs)
 	m.Run()
+}
+
+func (s *Server) testPage() string {
+	return `<html><body><script src='//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
+		 <ul id=messages></ul><form><input id=message><input type="submit" id=send value=Send></form>
+		 <script>
+		 var c=new WebSocket("ws://" + location.hostname + ":"  + location.port + "/daows");
+		 c.onopen = function(){
+		   c.onmessage = function(response){
+		     console.log(response.data);
+		     var newMessage = $('<li>').text(response.data);
+		     $('#messages').append(newMessage);
+		     $('#message').val('');
+		   };
+		   $('form').submit(function(){
+		     c.send($('#message').val());
+		     return false;
+		   });
+		 }
+		 </script></body></html>`
 }
 
 func (s *Server) Run() {

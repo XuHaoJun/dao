@@ -42,7 +42,7 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		configs:  &WorldConfigs{5, 30},
 		logger:   log.New(os.Stdout, "[dao-"+name+"] ", 0),
 		job:      make(chan func(), 512),
-		quit:     make(chan struct{}, 1),
+		quit:     make(chan struct{}),
 	}
 	baseScene := NewBoxScene("daoCity", 500, 500)
 	w.scenes[baseScene.name] = baseScene
@@ -64,9 +64,11 @@ func (w *World) Run() {
 			}
 			job()
 		case <-w.quit:
+			w.logger.Println("World:", "start shutdown accounts")
 			for _, acc := range w.accounts {
-				acc.Logout()
+				acc.ShutDown()
 			}
+			w.logger.Println("World:", "shoutdown accounts done.")
 			for _, scene := range w.scenes {
 				scene.ShutDown()
 			}
@@ -121,10 +123,11 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 		if ok {
 			// TODO
 			// update error to client duplicate account login
+			clientErr := []interface{}{"wrong username or password"}
 			clientCall := &ClientCall{
 				Receiver: "world",
-				Method:   "errLoginAccount",
-				Params:   nil,
+				Method:   "handleErrorLoginAccount",
+				Params:   clientErr,
 			}
 			sock.SendMsg(clientCall)
 			close(accC)
@@ -138,10 +141,11 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 		}
 		if err == mgo.ErrNotFound {
 			// notify client not find or password error
+			clientErr := []interface{}{"wrong username or password"}
 			clientCall := &ClientCall{
 				Receiver: "world",
-				Method:   "errLoginAccount",
-				Params:   nil,
+				Method:   "handleErrorLoginAccount",
+				Params:   clientErr,
 			}
 			sock.SendMsg(clientCall)
 			close(accC)
@@ -156,10 +160,14 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) *Ac
 		for i, char := range acc.chars {
 			charClients[i] = char.CharClient()
 		}
+		param := map[string]interface{}{
+			"username":    username,
+			"charConfigs": charClients,
+		}
 		clientCall := &ClientCall{
 			Receiver: "world",
-			Method:   "setAccount",
-			Params:   []interface{}{username, charClients},
+			Method:   "handleSuccessLoginAcccount",
+			Params:   []interface{}{param},
 		}
 		sock.SendMsg(clientCall)
 		accC <- acc

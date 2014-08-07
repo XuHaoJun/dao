@@ -50,8 +50,8 @@ func NewAccount(username string, password string, w *World) *Account {
 		world:    w,
 		chars:    []*Char{},
 		isOnline: false,
-		job:      make(chan func(), 64),
-		quit:     make(chan struct{}, 1),
+		job:      make(chan func(), 16),
+		quit:     make(chan struct{}),
 	}
 	return a
 }
@@ -77,8 +77,7 @@ func (a *Account) Run() {
 			}
 			job()
 		case <-a.quit:
-			close(a.job)
-			a.isOnline = false
+			a.DoLogout()
 			a.quit <- struct{}{}
 			return
 		}
@@ -161,6 +160,14 @@ func (a *Account) LoginChar(charSlot int) {
 			return
 		}
 		a.usingChar = a.chars[charSlot]
+		// TODO
+		// response client to load char's scene
+		clientCall := &ClientCall{
+			Receiver: "account",
+			Method:   "handleSuccessLoginChar",
+			Params:   nil,
+		}
+		a.sock.SendMsg(clientCall)
 		a.usingChar.Login()
 	})
 }
@@ -174,8 +181,6 @@ func (a *Account) Login(sock *wsConn) {
 		a.isOnline = true
 		a.Save()
 		a.sock = sock
-		// TODO
-		// update client to selecting char screen
 	})
 }
 
@@ -199,55 +204,57 @@ func (a *Account) CreateChar(name string) {
 		if len(a.chars) >= a.world.Configs().maxChars {
 			clientCall := &ClientCall{
 				Receiver: "account",
-				Method:   "errCreateChar",
-				Params:   nil,
+				Method:   "handleErrorCreateChar",
+				Params:   []interface{}{"overflow max chars."},
 			}
 			a.sock.SendMsg(clientCall)
 			return
 		}
-		foundChar := struct{ Name string }{}
 		queryChar := bson.M{"chars": bson.M{"$elemMatch": bson.M{"name": name}}}
-		selectChar := bson.M{"name": 1}
-		err := a.db.accounts.Find(queryChar).Select(selectChar).One(&foundChar)
+		err := a.db.accounts.Find(queryChar).Select(bson.M{"_id": 1}).One(&struct{}{})
 		if err != nil && err != mgo.ErrNotFound {
 			panic(err)
-		} else if foundChar.Name == name {
+		} else if err != mgo.ErrNotFound {
 			clientCall := &ClientCall{
 				Receiver: "account",
-				Method:   "errCreateChar",
-				Params:   nil,
+				Method:   "handleErrorCreateChar",
+				Params:   []interface{}{"duplicate char name."},
 			}
 			a.sock.SendMsg(clientCall)
-			return
 		} else if err == mgo.ErrNotFound {
 			char := NewChar(name, a)
 			char.slotIndex = len(a.chars)
 			a.chars = append(a.chars, char)
 			char.DoSaveByAccountDB()
-			a.world.logger.Println("Account:", a.username,
+			a.world.logger.Println(
+				"Account:", a.username,
 				"created a new char:",
 				char.name+".")
 			// TODO
 			// Update client screen
-			// clientCall := &ClientCall{
-			// 	Receiver: "account",
-			// 	Method:   "setAndShowChars",
-			// 	Params:   nil,
-			// }
-			// a.sock.SendMsg(clientCall)
+			clientCall := &ClientCall{
+				Receiver: "account",
+				Method:   "handleSuccessCreateChar",
+				Params:   nil,
+			}
+			a.sock.SendMsg(clientCall)
 		}
 	})
 }
 
+func (a *Account) DoLogout() {
+	if a.isOnline == false {
+		return
+	}
+	a.isOnline = false
+	if a.usingChar != nil {
+		a.usingChar.ShutDown()
+	}
+	a.world.LogoutAccount(a.username)
+	a.sock.Close()
+	a.world.logger.Println("Account:", a.username, "logouted.")
+}
+
 func (a *Account) Logout() {
-	a.DoJob(func() {
-		if a.isOnline == false {
-			return
-		}
-		a.isOnline = false
-		a.world.LogoutAccount(a.username)
-		a.ShutDown()
-		a.sock.Close()
-		a.world.logger.Println("Account:", a.username, "logouted.")
-	})
+	a.ShutDown()
 }
