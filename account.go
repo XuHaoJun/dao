@@ -84,9 +84,9 @@ func (a *Account) Run() {
 	}
 }
 
-func (a *Account) ShutDown() {
+func (a *Account) ShutDown() <-chan struct{} {
 	a.quit <- struct{}{}
-	<-a.quit
+	return a.quit
 }
 
 func (a *Account) DB() *DaoDB {
@@ -256,5 +256,5 @@ func (a *Account) DoLogout() {
 }
 
 func (a *Account) Logout() {
-	a.ShutDown()
+	<-a.ShutDown()
 }

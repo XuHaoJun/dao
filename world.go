@@ -65,8 +65,14 @@ func (w *World) Run() {
 			job()
 		case <-w.quit:
 			w.logger.Println("World:", "start shutdown accounts")
+			waitCs := make([]<-chan struct{}, len(w.accounts))
+			count := 0
 			for _, acc := range w.accounts {
-				acc.ShutDown()
+				waitCs[count] = acc.ShutDown()
+				count++
+			}
+			for i := 0; i < len(w.accounts); i++ {
+				<-waitCs[i]
 			}
 			w.logger.Println("World:", "shoutdown accounts done.")
 			for _, scene := range w.scenes {
