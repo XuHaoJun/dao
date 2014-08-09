@@ -16,6 +16,7 @@ type Itemer interface {
 	GetScene() *Scene
 	SetPos(vect.Vect)
 	Pos() vect.Vect
+	DoJob(func())
 	Lock()
 	Unlock()
 	RLock()
@@ -33,6 +34,12 @@ type Item struct {
 	mutex      *sync.RWMutex
 	scene      *Scene
 	pos        vect.Vect
+}
+
+func (i *Item) DoJob(f func()) {
+	i.mutex.Lock()
+	f()
+	i.mutex.Unlock()
 }
 
 func (i *Item) Name() string {

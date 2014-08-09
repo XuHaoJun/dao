@@ -44,7 +44,7 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		job:      make(chan func(), 512),
 		quit:     make(chan struct{}),
 	}
-	baseScene := NewBoxScene("daoCity", 500, 500)
+	baseScene := NewWallScene("daoCity", 200, 200)
 	w.scenes[baseScene.name] = baseScene
 	return w, nil
 }

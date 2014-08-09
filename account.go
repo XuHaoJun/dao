@@ -179,7 +179,6 @@ func (a *Account) Login(sock *wsConn) {
 			return
 		}
 		a.isOnline = true
-		a.Save()
 		a.sock = sock
 	})
 }
@@ -225,17 +224,20 @@ func (a *Account) CreateChar(name string) {
 			char := NewChar(name, a)
 			char.slotIndex = len(a.chars)
 			a.chars = append(a.chars, char)
-			char.DoSaveByAccountDB()
+			char.DoSave()
 			a.world.logger.Println(
 				"Account:", a.username,
 				"created a new char:",
 				char.name+".")
 			// TODO
 			// Update client screen
+			param := map[string]interface{}{
+				"charConfig": char.CharClient(),
+			}
 			clientCall := &ClientCall{
 				Receiver: "account",
 				Method:   "handleSuccessCreateChar",
-				Params:   nil,
+				Params:   []interface{}{param},
 			}
 			a.sock.SendMsg(clientCall)
 		}
@@ -248,6 +250,7 @@ func (a *Account) DoLogout() {
 	}
 	a.isOnline = false
 	if a.usingChar != nil {
+		a.usingChar.DoSave()
 		a.usingChar.ShutDown()
 	}
 	a.world.LogoutAccount(a.username)

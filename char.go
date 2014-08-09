@@ -13,6 +13,7 @@ type CharClientCall interface {
 	Logout()
 	NormalAttackByMid(mid int)
 	PickItemById(id int)
+	MoveByXY(x float64, y float64)
 }
 
 type Char struct {
@@ -23,7 +24,6 @@ type Char struct {
 	world       *World
 	account     *Account
 	slotIndex   int
-	db          *DaoDB
 	isOnline    bool
 	sock        *wsConn
 	lastScene   *SceneInfo
@@ -35,13 +35,15 @@ type Char struct {
 }
 
 type CharClient struct {
-	Id            int    `json:"id"`
-	Name          string `json:"name"`
-	SlotIndex     int    `json:"slotIndex"`
-	LastSceneName string `json:"lastSceneName"`
-	BodyViewId    int    `json:"bodyViewid"`
-	Level         int    `json:"level"`
-	IsDied        bool   `json:"isDied"`
+	Id            int     `json:"id"`
+	Name          string  `json:"name"`
+	SlotIndex     int     `json:"slotIndex"`
+	LastSceneName string  `json:"lastSceneName"`
+	LastX         float32 `json:"lastX"`
+	LastY         float32 `json:"lastY"`
+	BodyViewId    int     `json:"bodyViewid"`
+	Level         int     `json:"level"`
+	IsDied        bool    `json:"isDied"`
 	// main attribue
 	Str int `json:"str"`
 	Vit int `json:"vit"`
@@ -132,18 +134,17 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.items = cDump.Items.Load()
 	c.usingEquips = cDump.UsingEquips.Load()
 	c.bodyViewId = cDump.BodyViewId
-	body := chipmunk.NewBody(1, 1)
-	body.IgnoreGravity = true
-	body.SetVelocity(0, 0)
-	body.SetMoment(chipmunk.Inf)
-	c.body = body
-	c.body.SetPosition(vect.Vect{
-		X: vect.Float(cDump.LastScene.X),
-		Y: vect.Float(cDump.LastScene.Y)})
+	c.body = chipmunk.NewBody(1, 1)
 	circle := chipmunk.NewCircle(vect.Vector_Zero, cDump.BodyShape.Radius)
 	circle.SetFriction(0)
 	circle.SetElasticity(0)
 	c.body.AddShape(circle)
+	c.body.SetPosition(vect.Vect{
+		X: vect.Float(cDump.LastScene.X),
+		Y: vect.Float(cDump.LastScene.Y)})
+	c.body.IgnoreGravity = true
+	c.body.SetVelocity(0, 0)
+	c.body.SetMoment(chipmunk.Inf)
 	c.DoCalcAttributes()
 	return c
 }
@@ -185,6 +186,8 @@ func (c *Char) CharClient() *CharClient {
 		Level:         c.level,
 		SlotIndex:     c.slotIndex,
 		LastSceneName: c.lastScene.Name,
+		LastX:         c.lastScene.X,
+		LastY:         c.lastScene.Y,
 		BodyViewId:    c.bodyViewId,
 		IsDied:        c.isDied,
 		//
@@ -210,8 +213,6 @@ func (c *Char) CharClientCall() CharClientCall {
 }
 
 func (c *Char) Run() {
-	c.db = c.account.world.DB().CloneSession()
-	defer c.db.session.Close()
 	for {
 		select {
 		case job, ok := <-c.job:
@@ -220,12 +221,12 @@ func (c *Char) Run() {
 			}
 			job()
 		case <-c.quit:
+			c.DoLogout()
 			if c.scene != nil {
 				c.scene.DeleteBio(c)
 				c.scene = nil
 				c.id = 0
 			}
-			c.DoLogout()
 			c.quit <- struct{}{}
 			return
 		}
@@ -253,12 +254,8 @@ func (c *Char) saveChar(accs *mgo.Collection) {
 	}
 }
 
-func (c *Char) DoSaveByAccountDB() {
-	c.saveChar(c.account.db.accounts)
-}
-
 func (c *Char) DoSave() {
-	c.saveChar(c.db.accounts)
+	c.saveChar(c.account.db.accounts)
 }
 
 func (c *Char) Save() {
@@ -324,7 +321,6 @@ func (c *Char) DoLogout() {
 		return
 	}
 	c.isOnline = false
-	c.DoSave()
 	c.account.world.logger.Println("Char:", c.name, "logouted.")
 }
 
@@ -332,6 +328,7 @@ func (c *Char) Logout() {
 	c.account.Logout()
 }
 
+// it dispatch from scene
 func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall) {
 	c.DoJob(func() {
 		// if cc.Method == "Talk" &&
@@ -495,4 +492,8 @@ func (c *Char) PickItemById(id int) {
 		c.DoPickItem(item)
 		c.world.logger.Println("Char:", c.name, "pick up", item.Name())
 	})
+}
+
+func (c *Char) MoveByXY(x float64, y float64) {
+	c.Move(vect.Vect{X: vect.Float(x), Y: vect.Float(y)})
 }

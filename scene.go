@@ -56,7 +56,7 @@ func NewScene(name string) *Scene {
 	}
 }
 
-func NewBoxScene(name string, w vect.Float, h vect.Float) *Scene {
+func NewWallScene(name string, w vect.Float, h vect.Float) *Scene {
 	s := NewScene(name)
 	boxWall := chipmunk.NewBodyStatic()
 	wallTop := chipmunk.NewSegment(vect.Vect{X: -w / 2, Y: h / 2}, vect.Vect{X: w / 2, Y: h / 2}, 0)
@@ -139,26 +139,45 @@ func (s *Scene) FindMobById(mid int) *Mob {
 	return mob
 }
 
-func (s *Scene) DeleteBio(b SceneBioer) {
+func (s *Scene) DeleteBio(b Bioer) {
 	s.DoJob(func() {
+		fmt.Println("delete bioing start")
 		switch b.(type) {
 		case *Mob:
-			mob := b.(*Mob)
-			mid := mob.id
+			var mid int
+			m := b.(*Mob)
+			for id, mob := range s.mobs {
+				if mob == m {
+					mid = id
+					break
+				}
+			}
 			s.mobs[mid] = nil
-			// mob.SetId(0)
-			// mob.SetScene(nil)
 		case *Npc:
-			npc := b.(*Npc)
-			nid := npc.id
+			var nid int
+			n := b.(*Npc)
+			for id, npc := range s.npcs {
+				if npc == n {
+					nid = id
+					break
+				}
+			}
 			s.npcs[nid] = nil
 		case *Char:
-			char := b.(*Char)
-			cid := char.id
+			var cid int
+			c := b.(*Char)
+			for id, char := range s.chars {
+				if char == c {
+					cid = id
+					break
+				}
+			}
 			s.chars[cid] = nil
 		default:
 			fmt.Println("you should never look this line.")
+			return
 		}
+		fmt.Println("delete bioing done!")
 	})
 }
 
@@ -225,28 +244,56 @@ func (s *Scene) SceneBios() *SceneBios {
 	return <-biosC
 }
 
-func (s *Scene) AddBio(b SceneBioer) {
+func (s *Scene) AddBio(b Bioer) {
 	s.DoJob(func() {
-		switch b.(type) {
-		case *Mob:
-			mob := b.(*Mob)
-			mid := len(s.mobs)
-			s.mobs[mid] = mob
-			mob.SetIdAndScene(mid, s)
-		case *Npc:
-			npc := b.(*Npc)
-			nid := len(s.npcs)
-			s.npcs[nid] = npc
-			npc.SetIdAndScene(nid, s)
-		case *Char:
-			char := b.(*Char)
-			cid := len(s.chars)
-			s.chars[cid] = char
-			char.SetIdAndScene(cid, s)
-		default:
-			fmt.Println("you should never look this line.")
+		fmt.Println(b.Name())
+		doneC := make(chan struct{}, 1)
+		err := b.DoJob(func() {
+			if b.GetScene() == s {
+				return
+			}
+			switch b.(type) {
+			case *Mob:
+				mob := b.(*Mob)
+				mid := len(s.mobs) + 1
+				s.mobs[mid] = mob
+				mob.DoSetIdAndScene(mid, s)
+			case *Npc:
+				npc := b.(*Npc)
+				nid := len(s.npcs) + 1
+				s.npcs[nid] = npc
+				npc.DoSetIdAndScene(nid, s)
+			case *Char:
+				char := b.(*Char)
+				cid := len(s.chars) + 1
+				s.chars[cid] = char
+				char.DoSetIdAndScene(cid, s)
+			default:
+				fmt.Println("you should never look this line.")
+			}
+			doneC <- struct{}{}
+		})
+		if err != nil {
+			return
 		}
+		<-doneC
 	})
+}
+
+func (s *Scene) WallBodys() []*chipmunk.Body {
+	sbodysC := make(chan []*chipmunk.Body, 1)
+	err := s.DoJob(func() {
+		sbodys := make([]*chipmunk.Body, len(s.wallBodys))
+		for i, body := range s.wallBodys {
+			sbodys[i] = body.Clone()
+		}
+		sbodysC <- sbodys
+	})
+	if err != nil {
+		close(sbodysC)
+		return nil
+	}
+	return <-sbodysC
 }
 
 func (s *Scene) StaticBodys() []*chipmunk.Body {
@@ -255,7 +302,7 @@ func (s *Scene) StaticBodys() []*chipmunk.Body {
 		sbodys := make([]*chipmunk.Body, len(s.staticBodys))
 		i := 0
 		for body, _ := range s.staticBodys {
-			sbodys[i] = body.Clone()
+			sbodys[i] = body
 			i++
 		}
 		sbodysC <- sbodys

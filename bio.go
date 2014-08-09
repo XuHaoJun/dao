@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -51,6 +52,8 @@ type MoveState struct {
 	lastPosition  vect.Vect
 	lastAngle     vect.Float
 	running       bool
+	space         *chipmunk.Space
+	wallBodys     []*chipmunk.Body
 	quit          chan struct{}
 }
 
@@ -72,7 +75,7 @@ func NewBioBase() *BioBase {
 		moveState: &MoveState{
 			running:      false,
 			baseVelocity: vect.Vect{X: 10, Y: 10},
-			quit:         make(chan struct{}, 1),
+			quit:         make(chan struct{}),
 		},
 		enableViewAOI: true,
 		viewAOIRadius: 160.0,
@@ -217,8 +220,6 @@ func (b *BioBase) PublishClientCall(c *ClientCall) {
 	})
 }
 
-// FIXME
-// may be check move target pos is same with bio's pos
 func (b *BioBase) MoveCheckFunc() func(bool) bool {
 	return func(skipCheckRunning bool) bool {
 		tmpRunning := (b.moveState.running == true)
@@ -231,8 +232,66 @@ func (b *BioBase) MoveCheckFunc() func(bool) bool {
 			tmpRunning == true {
 			return false
 		}
-		b.moveState.running = true
 		return true
+	}
+}
+
+func (b *BioBase) MoveSecondCheckFunc() func() bool {
+	return func() bool {
+		space := chipmunk.NewSpace()
+		clone := b.body.Clone()
+		clone.SetVelocity(
+			float32(b.moveState.baseVelocity.X),
+			float32(b.moveState.baseVelocity.Y))
+		moveVelocity := clone.Velocity()
+		moveVect := vect.Sub(b.moveState.targetPos, clone.Position())
+		if float32(math.Abs(float64((1.0/60.0)*(moveVelocity.X)))) >
+			float32(math.Abs(float64(moveVect.X))) {
+			moveVect.X = 0
+		}
+		if float32(math.Abs(float64((1.0/60.0)*(moveVelocity.Y)))) >
+			float32(math.Abs(float64(moveVect.Y))) {
+			moveVect.Y = 0
+		}
+		if moveVect.X < 0 {
+			moveVelocity.X *= -1
+		} else if moveVect.X == 0 {
+			moveVelocity.X = 0
+		} else {
+			moveVelocity.X *= 1
+		}
+		if moveVect.Y < 0 {
+			moveVelocity.Y *= -1
+		} else if moveVect.Y == 0 {
+			moveVelocity.Y = 0
+		} else {
+			moveVelocity.Y *= 1
+		}
+		clone.SetVelocity(
+			float32(moveVelocity.X),
+			float32(moveVelocity.Y))
+		newPos := clone.Position()
+		// newPos.X += (moveVelocity.X * 1.0 / 60.0)
+		// newPos.Y += (moveVelocity.Y * 1.0 / 60.0)
+		newPos.X += 5
+		newPos.Y += 5
+		clone.SetPosition(newPos)
+		collision := &BioOnStaticCallbacks{false}
+		clone.CallbackHandler = collision
+		space.AddBody(clone)
+		wallBodys := b.scene.WallBodys()
+		for _, body := range wallBodys {
+			body.CallbackHandler = collision
+			space.AddBody(body)
+		}
+		space.Step(1.0 / 60.0)
+		space.Step(1.0 / 60.0)
+		space.Step(1.0 / 60.0)
+		space.Step(1.0 / 60.0)
+		space.Step(1.0 / 60.0)
+		fmt.Println("second collision.isOverlap: ",
+			collision.isOverlap)
+		return !collision.isOverlap
 	}
 }
 
@@ -242,19 +301,47 @@ func (b *BioBase) SetMoveTo(pos vect.Vect) {
 	})
 }
 
+type BioOnStaticCallbacks struct {
+	isOverlap bool
+}
+
+func (na *BioOnStaticCallbacks) CollisionEnter(arbiter *chipmunk.Arbiter) bool {
+	na.isOverlap = true
+	fmt.Println("wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww")
+	fmt.Println(arbiter.BodyA.Position())
+	fmt.Println(arbiter.BodyB.Position())
+	fmt.Println("wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww")
+	return true
+}
+
+func (na *BioOnStaticCallbacks) CollisionPreSolve(arbiter *chipmunk.Arbiter) bool {
+	return true
+}
+
+func (na *BioOnStaticCallbacks) CollisionPostSolve(arbiter *chipmunk.Arbiter) {}
+
+func (na *BioOnStaticCallbacks) CollisionExit(arbiter *chipmunk.Arbiter) {}
+
 func (b *BioBase) Move(pos vect.Vect) {
-	moveCheckC := make(chan bool, 1)
+	moveCheckC := make(chan bool)
 	err := b.DoJob(func() {
 		b.moveState.targetPos = pos
-		if b.moveState.moveCheckFunc(false) == true {
-			if b.moveState.targetPos == b.body.Position() {
+		check := b.moveState.moveCheckFunc(false)
+		if check == true {
+			secondCheck := b.MoveSecondCheckFunc()()
+			if secondCheck == false {
 				moveCheckC <- false
-			} else {
-				moveCheckC <- true
+				return
 			}
-		} else {
-			moveCheckC <- false
+			b.moveState.running = true
+			b.moveState.space = chipmunk.NewSpace()
+			b.moveState.wallBodys = b.scene.WallBodys()
+			b.moveState.space.AddBody(b.body)
+			for _, body := range b.moveState.wallBodys {
+				b.moveState.space.AddBody(body)
+			}
 		}
+		moveCheckC <- check
 	})
 	if err != nil || <-moveCheckC == false {
 		close(moveCheckC)
@@ -264,6 +351,7 @@ func (b *BioBase) Move(pos vect.Vect) {
 	defer func() {
 		b.DoJob(func() {
 			b.moveState.running = false
+			b.body = b.body.Clone()
 			b.body.SetVelocity(0.0, 0.0)
 		})
 	}()
@@ -275,23 +363,31 @@ func (b *BioBase) Move(pos vect.Vect) {
 				if moveCheck == false {
 					moveCheckC <- false
 					return
-				} else {
-					moveCheckC <- true
 				}
-				statics := b.scene.StaticBodys()
-				space := chipmunk.NewSpace()
-				for _, body := range statics {
-					space.AddBody(body)
-				}
-				space.AddBody(b.body)
+				space := b.moveState.space
+				collisionOnStatic := &BioOnStaticCallbacks{false}
+				b.body.CallbackHandler = collisionOnStatic
+				// statics := b.scene.StaticBodys()
+				// boxWall := chipmunk.b.body(1, 1)
+				// wallTop := chipmunk.NewSegment(
+				// 	vect.Vect{X: -100, Y: 70},
+				// 	vect.Vect{X: 100, Y: 70}, 0)
+				// wallTop.SetFriction(0)
+				// wallTop.SetElasticity(0)
+				// boxWall.AddShape(wallTop)
+				// boxWall.CallbackHandler = collisionOnStatic
+				// space.AddBody(boxWall)
 				// TODO
 				// 1. bio need lookat target x y
 				// 2. send clientcall to chars on velocity or angle changed
-				moveVelocity := b.moveState.baseVelocity
+				b.body.SetVelocity(
+					float32(b.moveState.baseVelocity.X),
+					float32(b.moveState.baseVelocity.Y))
+				moveVelocity := b.body.Velocity()
 				moveVect := vect.Sub(b.moveState.targetPos, b.body.Position())
 				// check if this move one step > move vect directly reach it.
-				if math.Abs(float64((1.0/60.0)*(moveVelocity.X))) >
-					math.Abs(float64(moveVect.X)) {
+				if float32(math.Abs(float64((1.0/60.0)*(moveVelocity.X)))) >
+					float32(math.Abs(float64(moveVect.X))) {
 					reachX := vect.Vect{
 						X: b.moveState.targetPos.X,
 						Y: b.body.Position().Y,
@@ -299,8 +395,8 @@ func (b *BioBase) Move(pos vect.Vect) {
 					b.body.SetPosition(reachX)
 					moveVect.X = 0
 				}
-				if math.Abs(float64((1.0/60.0)*(moveVelocity.Y))) >
-					math.Abs(float64(moveVect.Y)) {
+				if float32(math.Abs(float64((1.0/60.0)*(moveVelocity.Y)))) >
+					float32(math.Abs(float64(moveVect.Y))) {
 					reachY := vect.Vect{
 						X: b.body.Position().X,
 						Y: b.moveState.targetPos.Y,
@@ -308,31 +404,65 @@ func (b *BioBase) Move(pos vect.Vect) {
 					b.body.SetPosition(reachY)
 					moveVect.Y = 0
 				}
+				if vect.Equals(b.body.Position(), b.moveState.targetPos) ||
+					vect.Equals(b.body.Velocity(), vect.Vector_Zero) {
+					moveCheckC <- false
+					return
+				}
 				if moveVect.X < 0 {
 					moveVelocity.X *= -1
 				} else if moveVect.X == 0 {
 					moveVelocity.X = 0
+				} else {
+					moveVelocity.X *= 1
 				}
 				if moveVect.Y < 0 {
 					moveVelocity.Y *= -1
 				} else if moveVect.Y == 0 {
 					moveVelocity.Y = 0
+				} else {
+					moveVelocity.Y *= 1
 				}
-				b.body.SetVelocity(float32(moveVelocity.X),
+				b.body.SetVelocity(
+					float32(moveVelocity.X),
 					float32(moveVelocity.Y))
+				if vect.Equals(b.body.Position(), b.moveState.targetPos) ||
+					vect.Equals(b.body.Velocity(), vect.Vector_Zero) {
+					moveCheckC <- false
+					return
+				}
 				b.body.LookAt(b.moveState.targetPos)
 				b.moveState.lastPosition = b.body.Position()
 				b.moveState.lastVelocity = b.body.Velocity()
 				b.moveState.lastAngle = b.body.Angle()
 				space.Step(1.0 / 60.0)
+				// for _, body := range statics {
+				// 	space.RemoveBody(body)
+				// }
+				// space.RemoveBody(boxWall)
+				// space.RemoveBody(newBody)
 				// TODO
 				// publish charclient if velocity or angle change
+				fmt.Println("b.body velocity X:", b.body.Velocity().X)
+				fmt.Println("b.body velocity Y:", b.body.Velocity().Y)
+				fmt.Println("b.body X:", b.body.Position().X)
+				fmt.Println("b.body Y:", b.body.Position().Y)
+				// space.Step(1.0 / 60.0)
+				if vect.Equals(b.body.Position(), b.moveState.targetPos) ||
+					vect.Equals(b.body.Velocity(), vect.Vector_Zero) ||
+					collisionOnStatic.isOverlap == true {
+					moveCheckC <- false
+					return
+				}
+				b.body.CallbackHandler = nil
+				moveCheckC <- true
 			})
 			if err != nil {
 				return
 			}
 			mCheck, ok := <-moveCheckC
 			if ok == false || mCheck == false {
+				fmt.Println("wiwi")
 				return
 			}
 		case <-b.moveState.quit:
