@@ -1,7 +1,8 @@
 package dao
 
 import (
-	"labix.org/v2/mgo"
+	"gopkg.in/mgo.v2"
+	"os/exec"
 )
 
 type DaoDB struct {
@@ -10,6 +11,7 @@ type DaoDB struct {
 	session  *mgo.Session
 	db       *mgo.Database
 	accounts *mgo.Collection
+	items    *mgo.Collection
 }
 
 func NewDaoDB(mgourl string, dbname string) (*DaoDB, error) {
@@ -24,8 +26,21 @@ func NewDaoDB(mgourl string, dbname string) (*DaoDB, error) {
 		session:  mongoSession,
 		db:       db,
 		accounts: db.C("accounts"),
+		items:    db.C("items"),
 	}
 	return daoDB, nil
+}
+
+func (d *DaoDB) ImportDefaultJsonDB() error {
+	itemCmd := exec.Command("mongoimport", "--db", d.dbName,
+		"--collection", "items", "--type", "json",
+		"--file", "db/item_db.json", "--quiet", "--jsonArray",
+		"--upsert", "--upsertFields", "item.baseId")
+	err := itemCmd.Run()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (d *DaoDB) CloneSession() *DaoDB {
@@ -37,6 +52,7 @@ func (d *DaoDB) CloneSession() *DaoDB {
 		session:  session,
 		db:       db,
 		accounts: db.C("accounts"),
+		items:    db.C("items"),
 	}
 	return d2
 }

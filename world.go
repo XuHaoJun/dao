@@ -1,11 +1,14 @@
 package dao
 
 import (
+	"encoding/json"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 	"log"
 	"os"
-
-	"labix.org/v2/mgo"
-	"labix.org/v2/mgo/bson"
+	"reflect"
+	"sync"
+	"time"
 )
 
 type World struct {
@@ -15,8 +18,29 @@ type World struct {
 	db       *DaoDB
 	configs  *WorldConfigs
 	logger   *log.Logger
-	job      chan func()
-	quit     chan struct{}
+	//
+	// SaveAccount     chan *Account
+	// RegisterAccount chan *WorldRegisterAccount
+	// LoginAccount    chan *WorldLoginAccount
+	LogoutAccount chan *Account
+	//
+	SceneObjecterChangeScene chan *ChangeScene
+	//
+	// AccountLoginChar  chan *AccountLoginChar
+	// AccountCreateChar chan *AccountCreateChar
+	//
+	ParseClientCall chan *WorldParseClientCall
+	//
+	delta    float32
+	timeStep time.Duration
+	//
+	job  chan func()
+	Quit chan struct{}
+}
+
+type ChangeScene struct {
+	SceneObjecter SceneObjecter
+	Scene         *Scene
 }
 
 type WorldConfigs struct {
@@ -26,7 +50,7 @@ type WorldConfigs struct {
 
 type WorldClientCall interface {
 	RegisterAccount(username string, password string)
-	LoginAccount(username string, password string, sock *wsConn) *Account
+	LoginAccount(username string, password string, sock *wsConn)
 }
 
 func NewWorld(name string, mgourl string, dbname string) (*World, error) {
@@ -34,17 +58,29 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &World{
-		name:     name,
-		accounts: make(map[string]*Account),
-		scenes:   make(map[string]*Scene),
-		db:       db,
-		configs:  &WorldConfigs{5, 30},
-		logger:   log.New(os.Stdout, "[dao-"+name+"] ", 0),
-		job:      make(chan func(), 512),
-		quit:     make(chan struct{}),
+	err = db.ImportDefaultJsonDB()
+	if err != nil {
+		return nil, err
 	}
-	baseScene := NewWallScene("daoCity", 200, 200)
+	w := &World{
+		name:                     name,
+		accounts:                 make(map[string]*Account),
+		scenes:                   make(map[string]*Scene),
+		db:                       db,
+		configs:                  &WorldConfigs{5, 30},
+		logger:                   log.New(os.Stdout, "[dao-"+name+"] ", 0),
+		LogoutAccount:            make(chan *Account, 8),
+		SceneObjecterChangeScene: make(chan *ChangeScene, 256),
+		ParseClientCall:          make(chan *WorldParseClientCall, 10240),
+		//
+		delta:    1.0 / 20.0,
+		timeStep: (1.0 * time.Second / 20.0),
+		//
+		Quit: make(chan struct{}),
+	}
+	baseScene := NewWallScene(w, "daoCity", 2000, 2000)
+	senderNpc := NewNpcByBaseId(w, 1)
+	baseScene.Add(senderNpc.SceneObjecter())
 	w.scenes[baseScene.name] = baseScene
 	return w, nil
 }
@@ -55,191 +91,215 @@ func (w *World) WorldClientCall() WorldClientCall {
 
 func (w *World) Run() {
 	defer w.db.session.Close()
-	go w.scenes["daoCity"].Run()
+	var wg sync.WaitGroup
+	physicC := time.Tick(w.timeStep)
 	for {
 		select {
-		case job, ok := <-w.job:
-			if !ok {
-				return
+		case acc := <-w.LogoutAccount:
+			w.DoLogoutAccount(acc)
+		case params := <-w.ParseClientCall:
+			w.DoParseClientCall(params.Msg, params.Conn)
+		case params := <-w.SceneObjecterChangeScene:
+			sb := params.SceneObjecter
+			scene := params.Scene
+			if sb.Scene() == params.Scene {
+				continue
 			}
-			job()
-		case <-w.quit:
-			w.logger.Println("World:", "start shutdown accounts")
-			waitCs := make([]<-chan struct{}, len(w.accounts))
-			count := 0
-			for _, acc := range w.accounts {
-				waitCs[count] = acc.ShutDown()
-				count++
+			if sb.Scene() == nil {
+				scene.Add(sb)
+			} else {
+				sb.Scene().Remove(sb)
+				scene.Add(sb)
 			}
-			for i := 0; i < len(w.accounts); i++ {
-				<-waitCs[i]
-			}
-			w.logger.Println("World:", "shoutdown accounts done.")
+		case <-physicC:
 			for _, scene := range w.scenes {
-				scene.ShutDown()
+				wg.Add(1)
+				go func(s *Scene, dt float32) {
+					s.Update(dt)
+					wg.Done()
+				}(scene, w.delta)
 			}
-			w.quit <- struct{}{}
+			wg.Wait()
+		case <-w.Quit:
+			for _, acc := range w.accounts {
+				acc.Logout()
+			}
+			w.Quit <- struct{}{}
 			return
 		}
 	}
 }
 
-func (w *World) DB() *DaoDB {
-	dbC := make(chan *DaoDB, 1)
-	w.job <- func() {
-		dbC <- w.db
+// TODO
+// should check username and password is right format!
+func (w *World) registerAccount(username string, password string) {
+	db := w.db.CloneSession()
+	queryAcc := bson.M{"username": username}
+	err := db.accounts.Find(queryAcc).Select(bson.M{"_id": 1}).One(&struct{}{})
+	if err != nil && err != mgo.ErrNotFound {
+		panic(err)
+	} else if err != mgo.ErrNotFound {
+		// TODO
+		// reject to register same user
+		// send some message to client
+	} else if err == mgo.ErrNotFound {
+		acc := NewAccount(username, password, w)
+		acc.Save()
+		w.logger.Println("Account:", acc.username, "Registered.")
+		// TODO
+		// Update client screen
 	}
-	return <-dbC
-}
-
-func (w *World) ShutDown() {
-	w.quit <- struct{}{}
-	<-w.quit
 }
 
 func (w *World) RegisterAccount(username string, password string) {
-	w.job <- func() {
-		foundAcc := struct {
-			Username string `bson:"username"`
-		}{}
-		queryAcc := bson.M{"username": username}
-		selectAcc := bson.M{"username": 1}
-		err := w.db.accounts.Find(queryAcc).Select(selectAcc).One(&foundAcc)
-		if err != nil && err != mgo.ErrNotFound {
-			panic(err)
-		} else if foundAcc.Username == username {
-			// TODO
-			// reject to register same user
-			// send some message to client
+	go w.registerAccount(username, password)
+}
+
+type WorldParseClientCall struct {
+	Msg  []byte
+	Conn *wsConn
+}
+
+func (w *World) DoParseClientCall(msg []byte, conn *wsConn) {
+	logger := w.logger
+	acc := conn.account
+	clientCall := &ClientCall{}
+	err := json.Unmarshal(msg, clientCall)
+	if err != nil {
+		logger.Println(conn.ws.RemoteAddr(), ": can't parse to json:", string(msg))
+		return
+	}
+	// logger.Println(conn.ws.RemoteAddr(), "call:", clientCall)
+	switch clientCall.Receiver {
+	case "World":
+		if acc != nil {
 			return
-		} else if err == mgo.ErrNotFound {
-			acc := NewAccount(username, password, w)
-			acc.DoSaveByWorldDB()
-			w.logger.Println("Account:", acc.username, "Registered.")
-			// TODO
-			// Update client screen
 		}
+		v := w.WorldClientCall()
+		f := reflect.ValueOf(v).MethodByName(clientCall.Method)
+		if f.IsValid() == false {
+			return
+		}
+		if clientCall.Method == "LoginAccount" {
+			clientCall.Params = append(clientCall.Params, conn)
+		}
+		in, err := clientCall.CastJSON(f)
+		if err != nil {
+			return
+		}
+		f.Call(in)
+	case "Account":
+		if acc == nil {
+			return
+		}
+		v := acc.AccountClientCall()
+		f := reflect.ValueOf(v).MethodByName(clientCall.Method)
+		if f.IsValid() == false {
+			return
+		}
+		in, err := clientCall.CastJSON(f)
+		if err != nil {
+			return
+		}
+		f.Call(in)
+	case "Char":
+		if acc == nil {
+			return
+		}
+		char := acc.UsingChar()
+		if char == nil {
+			return
+		}
+		v := char.CharClientCall()
+		f := reflect.ValueOf(v).MethodByName(clientCall.Method)
+		if f.IsValid() == false {
+			return
+		}
+		in, err := clientCall.CastJSON(f)
+		if err != nil {
+			return
+		}
+		f.Call(in)
+	default:
+		return
 	}
 }
 
-func (w *World) LoginAccount(username string, password string, sock *wsConn) *Account {
-	accC := make(chan *Account, 1)
-	w.job <- func() {
-		_, ok := w.accounts[username]
-		if ok {
-			// TODO
-			// update error to client duplicate account login
-			clientErr := []interface{}{"wrong username or password"}
-			clientCall := &ClientCall{
-				Receiver: "world",
-				Method:   "handleErrorLoginAccount",
-				Params:   clientErr,
-			}
-			sock.SendMsg(clientCall)
-			close(accC)
-			return
-		}
-		foundAcc := &AccountDumpDB{}
-		queryAcc := bson.M{"username": username, "password": password}
-		err := w.db.accounts.Find(queryAcc).One(foundAcc)
-		if err != nil && err != mgo.ErrNotFound {
-			panic(err)
-		}
-		if err == mgo.ErrNotFound {
-			// notify client not find or password error
-			clientErr := []interface{}{"wrong username or password"}
-			clientCall := &ClientCall{
-				Receiver: "world",
-				Method:   "handleErrorLoginAccount",
-				Params:   clientErr,
-			}
-			sock.SendMsg(clientCall)
-			close(accC)
-			return
-		}
-		acc := foundAcc.Load(w)
-		w.accounts[acc.username] = acc
-		acc.Login(sock)
-		// TODO
-		// show chars for select
-		charClients := make([]interface{}, len(acc.chars))
-		for i, char := range acc.chars {
-			charClients[i] = char.CharClient()
-		}
-		param := map[string]interface{}{
-			"username":    username,
-			"charConfigs": charClients,
-		}
+func (w *World) RequestParseClientCall(msg []byte, conn *wsConn) {
+	w.ParseClientCall <- &WorldParseClientCall{msg, conn}
+}
+
+func (w *World) DoLogoutAccount(acc *Account) {
+	_, ok := w.accounts[acc.username]
+	if ok {
+		acc.Logout()
+		delete(w.accounts, acc.username)
+	}
+}
+
+func (w *World) LoginAccount(username string, password string, sock *wsConn) {
+	_, ok := w.accounts[username]
+	if ok {
+		clientErr := []interface{}{"wrong username or password"}
 		clientCall := &ClientCall{
 			Receiver: "world",
-			Method:   "handleSuccessLoginAcccount",
-			Params:   []interface{}{param},
+			Method:   "handleErrorLoginAccount",
+			Params:   clientErr,
 		}
 		sock.SendMsg(clientCall)
-		accC <- acc
-		w.logger.Println("Account:", acc.username, "Logined.")
+		return
 	}
-	acc, ok := <-accC
-	if !ok {
-		return nil
+	foundAcc := &AccountDumpDB{}
+	queryAcc := bson.M{"username": username, "password": password}
+	err := w.db.accounts.Find(queryAcc).One(foundAcc)
+	if err != nil && err != mgo.ErrNotFound {
+		panic(err)
 	}
-	return acc
-}
-
-func (w *World) LogoutAccount(username string) {
-	w.job <- func() {
-		_, ok := w.accounts[username]
-		if !ok {
-			// should return error
-		} else {
-			delete(w.accounts, username)
+	if err == mgo.ErrNotFound {
+		clientErr := []interface{}{"wrong username or password"}
+		clientCall := &ClientCall{
+			Receiver: "world",
+			Method:   "handleErrorLoginAccount",
+			Params:   clientErr,
 		}
+		sock.SendMsg(clientCall)
+		return
 	}
-}
-
-// func (w *World) IsOnlineAccountByUsername(username string) bool {
-// 	has := make(chan bool, 1)
-// 	w.job <- func() {
-// 		_, ok := w.accounts[username]
-// 		has <- ok
-// 	}
-// 	return <-has
-// }
-
-func (w *World) IsOnlineAccount(acc *Account) bool {
-	has := make(chan bool, 1)
-	w.job <- func() {
-		_, ok := w.accounts[acc.username]
-		has <- ok
+	acc := foundAcc.Load(w)
+	w.accounts[acc.username] = acc
+	acc.Login(sock)
+	charClients := make([]interface{}, len(acc.chars))
+	for i, char := range acc.chars {
+		charClients[i] = char.CharClient()
 	}
-	return <-has
+	param := map[string]interface{}{
+		"username":    username,
+		"charConfigs": charClients,
+	}
+	clientCall := &ClientCall{
+		Receiver: "world",
+		Method:   "handleSuccessLoginAcccount",
+		Params:   []interface{}{param},
+	}
+	sock.SendMsg(clientCall)
+	w.logger.Println("Account:", acc.username, "Logined.")
 }
 
 func (w *World) Configs() *WorldConfigs {
 	return w.configs
 }
 
-func (w *World) FindSceneByName(sname string) *Scene {
-	sceneChan := make(chan *Scene, 1)
-	w.job <- func() {
-		sceneChan <- w.scenes[sname]
+func (w *World) NewEquipmentByBaseId(id int) (*Equipment, error) {
+	eqDump := NewEquipment().DumpDB()
+	// TODO
+	// add check db error
+	err := w.db.items.Find(bson.M{"item.baseId": id}).One(eqDump)
+	if err != nil {
+		return nil, err
 	}
-	scene, ok := <-sceneChan
-	if !ok {
-		return nil
+	eq := eqDump.Load()
+	if eq.iconViewId == 0 {
+		eq.iconViewId = eq.baseId
 	}
-	return scene
-}
-
-func (w *World) AddScene(s *Scene) {
-	w.job <- func() {
-		w.scenes[s.name] = s
-	}
-}
-
-func (w *World) AddSceneAndRun(s *Scene) {
-	w.job <- func() {
-		w.scenes[s.name] = s
-		go s.Run()
-	}
+	return eq, nil
 }

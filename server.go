@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"reflect"
 	"time"
 
 	"github.com/go-martini/martini"
@@ -15,7 +14,9 @@ import (
 
 type wsConn struct {
 	ws       *websocket.Conn
+	hub      *WsHub
 	server   *Server
+	account  *Account
 	readQuit chan struct{}
 	send     chan []byte
 }
@@ -53,7 +54,6 @@ func (conn *wsConn) Close() {
 }
 
 func (conn *wsConn) SendJSON(msg interface{}) (err error) {
-	defer handleErrSendCloseChanel(&err)
 	jsonMsg, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -73,21 +73,9 @@ func (conn *wsConn) Send(msg []byte) (err error) {
 	return
 }
 
-func (conn *wsConn) readRun(hub *WsHub) {
-	logger := conn.server.world.logger
-	var acc *Account
+func (conn *wsConn) readRun() {
 	defer func() {
-		hub.unregister <- conn
-		if acc != nil {
-			if conn.server.world.IsOnlineAccount(acc) {
-				char := acc.UsingChar()
-				if char == nil {
-					acc.Logout()
-				} else {
-					char.Logout()
-				}
-			}
-		}
+		conn.hub.unregister <- conn
 	}()
 	conn.ws.SetReadLimit(10240)
 	conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -96,90 +84,12 @@ func (conn *wsConn) readRun(hub *WsHub) {
 		return nil
 	}
 	conn.ws.SetPongHandler(pongFunc)
-ReadLoop:
 	for {
 		_, msg, err := conn.ws.ReadMessage()
 		if err != nil {
-			break ReadLoop
+			return
 		}
-		// echo
-		// conn.send <- msg
-		// TODO
-		// connect it to my game
-		clientCall := &ClientCall{}
-		err = json.Unmarshal(msg, clientCall)
-		if err != nil {
-			logger.Println(conn.ws.RemoteAddr(), ": can't parse to json:", string(msg))
-			continue ReadLoop
-		}
-		logger.Println(conn.ws.RemoteAddr(), "call:", clientCall)
-		switch clientCall.Receiver {
-		case "World":
-			if acc != nil {
-				continue ReadLoop
-			}
-			v := conn.server.world.WorldClientCall()
-			f := reflect.ValueOf(v).MethodByName(clientCall.Method)
-			if f.IsNil() {
-				continue ReadLoop
-			}
-			if clientCall.Method == "LoginAccount" {
-				clientCall.Params = append(clientCall.Params, conn)
-			}
-			in, err := clientCall.CastJSON(f)
-			if err != nil {
-				continue ReadLoop
-			}
-			if clientCall.Method == "LoginAccount" {
-				result := f.Call(in)
-				if result[0].IsNil() == false {
-					acc = result[0].Interface().(*Account)
-				}
-			} else {
-				f.Call(in)
-			}
-		case "Account":
-			if acc == nil ||
-				(acc != nil && acc.UsingChar() != nil) {
-				continue ReadLoop
-			}
-			v := acc.AccountClientCall()
-			f := reflect.ValueOf(v).MethodByName(clientCall.Method)
-			if f.IsNil() {
-				continue ReadLoop
-			}
-			in, err := clientCall.CastJSON(f)
-			if err != nil {
-				continue ReadLoop
-			}
-			f.Call(in)
-			if clientCall.Method == "Logout" {
-				break ReadLoop
-			}
-		case "Char":
-			if acc == nil {
-				continue ReadLoop
-			}
-			char := acc.UsingChar()
-			if char == nil {
-				continue ReadLoop
-			}
-			v := char.CharClientCall()
-			f := reflect.ValueOf(v).MethodByName(clientCall.Method)
-			if f.IsNil() {
-				continue ReadLoop
-			}
-			in, err := clientCall.CastJSON(f)
-			if err != nil {
-				continue ReadLoop
-			}
-			f.Call(in)
-			if clientCall.Method == "Logout" {
-				break ReadLoop
-			}
-		default:
-			continue ReadLoop
-		}
+		conn.server.world.RequestParseClientCall(msg, conn)
 	}
 }
 
@@ -188,7 +98,7 @@ type WsHub struct {
 	connections map[*wsConn]struct{}
 	register    chan *wsConn
 	unregister  chan *wsConn
-	quit        chan struct{}
+	Quit        chan struct{}
 }
 
 func (hub *WsHub) Run() {
@@ -198,22 +108,14 @@ func (hub *WsHub) Run() {
 			hub.connections[conn] = struct{}{}
 		case conn := <-hub.unregister:
 			delete(hub.connections, conn)
-			close(conn.send)
-		case <-hub.quit:
-			// TODO
-			// should connect with my game
-			for conn, _ := range hub.connections {
-				close(conn.send)
+			if conn.account != nil {
+				conn.account.RequestLogout()
 			}
-			hub.quit <- struct{}{}
+		case <-hub.Quit:
+			hub.Quit <- struct{}{}
 			return
 		}
 	}
-}
-
-func (hub *WsHub) ShutDown() {
-	hub.quit <- struct{}{}
-	<-hub.quit
 }
 
 type Server struct {
@@ -230,7 +132,7 @@ func NewServer() *Server {
 		connections: make(map[*wsConn]struct{}),
 		register:    make(chan *wsConn),
 		unregister:  make(chan *wsConn),
-		quit:        make(chan struct{}, 1),
+		Quit:        make(chan struct{}),
 	}
 	ds := &Server{
 		world: w,
@@ -254,8 +156,10 @@ func (s *Server) HandleSignal() {
 }
 
 func (s *Server) ShutDown() {
-	s.world.ShutDown()
-	s.wsHub.ShutDown()
+	s.wsHub.Quit <- struct{}{}
+	s.world.Quit <- struct{}{}
+	<-s.world.Quit
+	<-s.wsHub.Quit
 }
 
 func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
@@ -264,22 +168,28 @@ func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
 		return
 	}
 	upgrader := websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
+		ReadBufferSize:  10240,
+		WriteBufferSize: 10240,
 	}
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	conn := &wsConn{
-		ws:     ws,
-		server: ds,
-		send:   make(chan []byte, 1024),
-	}
+	conn := NewWsConn(ws, ds.wsHub)
 	ds.wsHub.register <- conn
 	go conn.writeRun()
-	conn.readRun(ds.wsHub)
+	conn.readRun()
+}
+
+func NewWsConn(ws *websocket.Conn, hub *WsHub) *wsConn {
+	return &wsConn{
+		ws:      ws,
+		hub:     hub,
+		server:  hub.server,
+		account: nil,
+		send:    make(chan []byte, 20480),
+	}
 }
 
 func (s *Server) RunHTTP() {

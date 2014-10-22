@@ -5,19 +5,40 @@ import (
 
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
-	"labix.org/v2/mgo"
-	"labix.org/v2/mgo/bson"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 )
 
 type CharClientCall interface {
 	Logout()
-	NormalAttackByMid(mid int)
-	PickItemById(id int)
-	MoveByXY(x float64, y float64)
+	Move(x, y float32)
+	ShutDownMove()
+	TalkScene(content string)
+	EquipBySlot(slot int)
+	UnequipBySlot(slot int)
+	// NormalAttackByMid(mid int)
+	// PickItemById(id int)
+	TalkNpcById(nid int)
+	CancelTalkingNpc()
+}
+
+type Charer interface {
+	Bioer
+	DumpDB() *CharDumpDB
+	Login()
+	Logout()
+	OnReceiveClientCall(sender ClientCallPublisher, c *ClientCall)
+	Save()
+	SendMsg(interface{})
+	CharClientCall() CharClientCall
+	CharClient() *CharClient
+	CharClientBasic() *CharClientBasic
+	Bioer() Bioer
+	ResponseTalkingNpc(optIndex int)
 }
 
 type Char struct {
-	*BattleBioBase
+	*Bio
 	bsonId      bson.ObjectId
 	usingEquips UsingEquips
 	items       *Items // may be rename to inventory
@@ -30,36 +51,27 @@ type Char struct {
 	saveScene   *SceneInfo
 	dzeny       int
 	//
+	baseStr int
+	baseVit int
+	baseWis int
+	baseSpi int
+	//
 	pickRadius float32
 	pickRange  *chipmunk.Body
 }
 
 type CharClient struct {
-	Id            int     `json:"id"`
-	Name          string  `json:"name"`
-	SlotIndex     int     `json:"slotIndex"`
-	LastSceneName string  `json:"lastSceneName"`
-	LastX         float32 `json:"lastX"`
-	LastY         float32 `json:"lastY"`
-	BodyViewId    int     `json:"bodyViewid"`
-	Level         int     `json:"level"`
-	IsDied        bool    `json:"isDied"`
-	// main attribue
-	Str int `json:"str"`
-	Vit int `json:"vit"`
-	Wis int `json:"wis"`
-	Spi int `json:"spi"`
-	// sub attribue
-	Def   int `json:"def"`
-	Mdef  int `json:"mdef"`
-	Atk   int `json:"atk"`
-	Matk  int `json:"matk"`
-	MaxHp int `json:"maxHp"`
-	Hp    int `json:"hp"`
-	MaxMp int `json:"maxMp"`
-	Mp    int `json:"mp"`
-	// TODO
-	// add items and body info
+	BioClient     *BioClient        `json:"bioConfig"`
+	SlotIndex     int               `json:"slotIndex"`
+	LastSceneName string            `json:"lastSceneName"`
+	LastX         float32           `json:"lastX"`
+	LastY         float32           `json:"lastY"`
+	Items         *ItemsClient      `json:"items"`
+	UsingEquips   UsingEquipsClient `json:"usingEquips"`
+}
+
+type CharClientBasic struct {
+	BioClient *BioClientBasic `json:"bioConfig"`
 }
 
 type CharDumpDB struct {
@@ -136,6 +148,7 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.bodyViewId = cDump.BodyViewId
 	c.body = chipmunk.NewBody(1, 1)
 	circle := chipmunk.NewCircle(vect.Vector_Zero, cDump.BodyShape.Radius)
+	circle.Group = BioGroup
 	circle.SetFriction(0)
 	circle.SetElasticity(0)
 	c.body.AddShape(circle)
@@ -145,104 +158,102 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.body.IgnoreGravity = true
 	c.body.SetVelocity(0, 0)
 	c.body.SetMoment(chipmunk.Inf)
-	c.DoCalcAttributes()
+	c.body.UserData = c
+	c.viewAOIState.body.SetPosition(c.body.Position())
+	c.CalcAttributes()
 	return c
 }
 
 func NewChar(name string, acc *Account) *Char {
 	c := &Char{
-		BattleBioBase: NewBattleBioBase(),
-		bsonId:        bson.NewObjectId(),
-		usingEquips:   NewUsingEquips(),
-		items:         NewItems(acc.world.Configs().maxCharItems),
-		isOnline:      false,
-		account:       acc,
-		world:         acc.world,
-		sock:          acc.sock,
-		lastScene:     &SceneInfo{"daoCity", 0, 0},
-		saveScene:     &SceneInfo{"daoCity", 0, 0},
+		Bio:         NewBio(acc.world),
+		bsonId:      bson.NewObjectId(),
+		usingEquips: NewUsingEquips(),
+		items:       NewItems(acc.world.Configs().maxCharItems),
+		isOnline:    false,
+		account:     acc,
+		world:       acc.world,
+		sock:        acc.sock,
+		lastScene:   &SceneInfo{"daoCity", 0, 0},
+		saveScene:   &SceneInfo{"daoCity", 0, 0},
 	}
 	c.name = name
 	c.level = 1
+	c.baseStr = 1
+	c.baseVit = 1
+	c.baseWis = 1
+	c.baseSpi = 1
 	c.str = 1
 	c.vit = 1
 	c.wis = 1
 	c.spi = 1
+	c.CalcAttributes()
+	c.hp = c.maxHp
+	c.mp = c.maxMp
+	freeEq, err := c.world.NewEquipmentByBaseId(1)
+	if err == nil {
+		c.items.equipment[0] = freeEq
+	}
 	c.pickRadius = 42.0
 	c.pickRange = chipmunk.NewBody(1, 1)
 	pickShape := chipmunk.NewCircle(vect.Vector_Zero, c.pickRadius)
 	pickShape.IsSensor = true
 	c.pickRange.IgnoreGravity = true
 	c.pickRange.AddShape(pickShape)
-	// replace default onkill func
-	c.BattleBioBase.OnKill = c.OnKillFunc()
+	c.OnKill = c.OnKillFunc()
+	c.viewAOIState.OnSceneObjectEnter = c.OnSceneObjectEnterViewAOIFunc()
+	c.viewAOIState.OnSceneObjectLeave = c.OnSceneObjectLeaveViewAOIFunc()
+	c.body.UserData = c
+	c.clientCallPublisher = c
 	return c
 }
 
+func (c *Char) CalcAttributes() {
+	for _, eq := range c.usingEquips {
+		if eq == nil {
+			continue
+		}
+		c.str = c.baseStr + eq.bonusInfo.str
+		c.wis = c.baseWis + eq.bonusInfo.wis
+		c.spi = c.baseSpi + eq.bonusInfo.spi
+		c.vit = c.baseVit + eq.bonusInfo.vit
+	}
+	c.Bio.CalcAttributes()
+	for _, eq := range c.usingEquips {
+		if eq == nil {
+			continue
+		}
+		c.maxHp += eq.bonusInfo.maxHp
+		c.maxMp += eq.bonusInfo.maxHp
+		c.atk += eq.bonusInfo.atk
+		c.matk += eq.bonusInfo.matk
+		c.def += eq.bonusInfo.def
+		c.mdef += eq.bonusInfo.mdef
+	}
+}
+
 func (c *Char) CharClient() *CharClient {
-	cc := &CharClient{
-		Id:            c.id,
-		Name:          c.name,
-		Level:         c.level,
+	bClient := c.Bio.BioClient()
+	return &CharClient{
+		BioClient:     bClient,
 		SlotIndex:     c.slotIndex,
 		LastSceneName: c.lastScene.Name,
 		LastX:         c.lastScene.X,
 		LastY:         c.lastScene.Y,
-		BodyViewId:    c.bodyViewId,
-		IsDied:        c.isDied,
-		//
-		Str: c.str,
-		Vit: c.vit,
-		Wis: c.wis,
-		Spi: c.spi,
-		//
-		Def:   c.def,
-		Mdef:  c.mdef,
-		Atk:   c.atk,
-		Matk:  c.matk,
-		MaxHp: c.maxHp,
-		Hp:    c.hp,
-		MaxMp: c.maxMp,
-		Mp:    c.mp,
+		Items:         c.items.ItemsClient(),
+		UsingEquips:   c.usingEquips.UsingEquipsClient(),
 	}
-	return cc
+}
+
+func (c *Char) CharClientBasic() *CharClientBasic {
+	bClient := c.Bio.BioClientBasic()
+	return &CharClientBasic{
+		BioClient: bClient,
+	}
 }
 
 func (c *Char) CharClientCall() CharClientCall {
 	return c
-}
-
-func (c *Char) Run() {
-	for {
-		select {
-		case job, ok := <-c.job:
-			if !ok {
-				return
-			}
-			job()
-		case <-c.quit:
-			c.DoLogout()
-			if c.scene != nil {
-				c.scene.DeleteBio(c)
-				c.scene = nil
-				c.id = 0
-			}
-			c.quit <- struct{}{}
-			return
-		}
-	}
-}
-
-func (c *Char) DoCalcAttributes() {
-	// TODO
-	// add attributes from usingEquips
-	c.BattleBioBase.DoCalcAttributes()
-}
-
-func (c *Char) CalcAttributes() {
-	c.DoJob(func() {
-		c.DoCalcAttributes()
-	})
 }
 
 func (c *Char) saveChar(accs *mgo.Collection) {
@@ -254,46 +265,37 @@ func (c *Char) saveChar(accs *mgo.Collection) {
 	}
 }
 
-func (c *Char) DoSave() {
-	c.saveChar(c.account.db.accounts)
-}
-
 func (c *Char) Save() {
-	c.DoJob(func() {
-		c.DoSave()
-	})
+	c.saveChar(c.account.world.db.accounts)
 }
 
 func (c *Char) Login() {
-	go c.Run()
-	c.DoJob(func() {
-		if c.isOnline == true ||
-			c.lastScene == nil ||
-			c.saveScene == nil {
-			return
-		}
-		c.isOnline = true
-		var scene *Scene
-		lastScene := c.world.FindSceneByName(c.lastScene.Name)
-		if lastScene == nil {
-			saveScene := c.world.FindSceneByName(c.saveScene.Name)
-			if saveScene == nil {
-				c.saveScene = &SceneInfo{"daoCity", 0, 0}
-				scene = c.world.FindSceneByName(c.saveScene.Name)
-			} else {
-				scene = saveScene
-			}
+	if c.isOnline == true ||
+		c.lastScene == nil ||
+		c.saveScene == nil {
+		return
+	}
+	c.isOnline = true
+	var scene *Scene
+	lastScene, foundLast := c.world.scenes[c.lastScene.Name]
+	if foundLast == false {
+		saveScene, foundSave := c.world.scenes[c.saveScene.Name]
+		if foundSave == false {
+			c.saveScene = &SceneInfo{"daoCity", 0, 0}
+			scene = c.world.scenes["daoCity"]
 		} else {
-			scene = lastScene
+			scene = saveScene
 		}
-		scene.AddBio(c)
-		logger := c.account.world.logger
-		logger.Println("Char:", c.name, "logined.")
-	})
+	} else {
+		scene = lastScene
+	}
+	scene.Add(c.SceneObjecter())
+	logger := c.account.world.logger
+	logger.Println("Char:", c.name, "logined.")
 }
 
-func (c *Char) OnKillFunc() func(target BattleBioer) {
-	return func(target BattleBioer) {
+func (c *Char) OnKillFunc() func(target Bioer) {
+	return func(target Bioer) {
 		// for quest check or add zeny when kill
 		mob, ok := target.(*Mob)
 		if !ok {
@@ -304,196 +306,318 @@ func (c *Char) OnKillFunc() func(target BattleBioer) {
 }
 
 func (c *Char) NormalAttackByMid(mid int) {
-	c.DoJob(func() {
-		if mid <= 0 || c.scene == nil {
-			return
-		}
-		mob := c.scene.FindMobById(mid)
-		if mob == nil {
-			return
-		}
-		c.NormalAttack(mob.BattleBioer())
-	})
-}
-
-func (c *Char) DoLogout() {
-	if c.isOnline == false {
+	if mid <= 0 || c.scene == nil {
 		return
 	}
-	c.isOnline = false
-	c.account.world.logger.Println("Char:", c.name, "logouted.")
+	mob := c.scene.FindMobById(mid)
+	if mob == nil {
+		return
+	}
+	// c.NormalAttack(mob.Bioer())
 }
 
 func (c *Char) Logout() {
 	c.account.Logout()
 }
 
-// it dispatch from scene
-func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall) {
-	c.DoJob(func() {
-		// if cc.Method == "Talk" &&
-		// 	len(cc.Params) == 2 &&
-		// 	cc.Params[0].(string) == "local" {
-		// 	c.sock.SendMsg(cc)
-		// 	return
-		// }
+func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
+	return func(enterSb SceneObjecter) {
 		// TODO
-		// add itemPublisher in the future
-		// bioPublisher, ok := publisher.(Bioer)
-		// if !ok {
-		// 	return
-		// }
-		// _, found := c.viewAOI.bioers[bioPublisher]
-		// if found {
-		// 	c.sock.SendMsg(cc)
-		// }
-	})
-}
-
-func (c *Char) DoHasEquipInUsingEquips(e *Equipment) bool {
-	for i := 0; i < len(c.usingEquips); i++ {
-		if e == c.usingEquips[i] {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *Char) DoHasEquipInItems(e *Equipment) bool {
-	for i := 0; i < len(c.items.equipment); i++ {
-		if e == c.items.equipment[i] {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *Char) EquipBySlot(slot int) {
-	c.DoJob(func() {
-		if slot < 0 {
-			return
-		}
-		e := c.items.equipment[slot]
-		if e == nil {
-			return
-		}
-		c.DoEquip(e)
-	})
-}
-
-func (c *Char) DoEquip(e *Equipment) {
-	c.usingEquips[e.etype] = e
-	// TODO
-	// inc equip's bonus to char
-	c.DoCalcAttributes()
-}
-
-func (c *Char) Equip(e *Equipment) {
-	c.DoJob(func() {
-		found := c.DoHasEquipInItems(e)
-		if found == false {
-			return
-		}
-		c.DoEquip(e)
-	})
-}
-
-func (c *Char) DoUnequip(e *Equipment) {
-	c.usingEquips[e.etype] = nil
-	// TODO
-	// dec equip's bonus to char
-	c.DoCalcAttributes()
-}
-
-func (c *Char) Unequip(e *Equipment) {
-	c.DoJob(func() {
-		found := c.DoHasEquipInUsingEquips(e)
-		if found == false {
-			return
-		}
-		c.DoUnequip(e)
-	})
-}
-
-func (c *Char) UnequipBySlot(slot int) {
-	c.DoJob(func() {
-		if slot < 0 {
-			return
-		}
-		e := c.usingEquips[slot]
-		if e == nil {
-			return
-		}
-		c.DoUnequip(e)
-	})
-}
-
-func (c *Char) DoAddItem(itemer Itemer) {
-	switch item := itemer.(type) {
-	case *EtcItem:
-		for i, eitem := range c.items.etcItem {
-			if eitem == nil {
-				c.items.etcItem[i] = item
-				break
+		// display new sceneobject to client screen
+		// and and mober
+		switch enter := enterSb.(type) {
+		case Npcer:
+			clientCall := &ClientCall{
+				Receiver: "scene",
+				Method:   "handleAddNpc",
+				Params:   []interface{}{enter.NpcClientBasic()},
 			}
-		}
-	case *Equipment:
-		for i, eitem := range c.items.equipment {
-			if eitem == nil {
-				c.items.equipment[i] = item
-				break
-			}
-		}
-	case *UseSelfItem:
-		for i, uitem := range c.items.useSelfItem {
-			if uitem == nil {
-				c.items.useSelfItem[i] = item
-				break
+			c.sock.SendMsg(clientCall)
+		case Charer:
+			if enter != c.Charer() {
+				clientCall := &ClientCall{
+					Receiver: "scene",
+					Method:   "handleAddChar",
+					Params:   []interface{}{enter.CharClientBasic()},
+				}
+				c.sock.SendMsg(clientCall)
 			}
 		}
 	}
 }
 
-func (c *Char) AddItem(itemer Itemer) {
-	c.DoJob(func() {
-		c.DoAddItem(itemer)
-	})
+func (c *Char) OnSceneObjectLeaveViewAOIFunc() func(SceneObjecter) {
+	return func(leaveSb SceneObjecter) {
+		// remove sceneobject to client screen
+		clientCall := &ClientCall{
+			Receiver: "scene",
+			Method:   "handleRemoveById",
+			Params:   []interface{}{leaveSb.Id()},
+		}
+		c.sock.SendMsg(clientCall)
+	}
 }
 
-func (c *Char) DoPickItem(item Itemer) {
-	item.Lock()
-	defer item.Unlock()
-	if item.GetScene() == nil {
-		return
-	}
-	c.DoAddItem(item)
-	item.GetScene().DeleteItem(item)
-	item.DoSetScene(nil)
+func (c *Char) SendMsg(msg interface{}) {
+	c.sock.SendMsg(msg)
+}
+
+func (c *Char) Bioer() Bioer {
+	return c
+}
+
+func (c *Char) Charer() Charer {
+	return c
+}
+
+func (c *Char) SceneObjecter() SceneObjecter {
+	return c
 }
 
 // TODO
-// func add pick item check func
-
-func (c *Char) PickItem(item Itemer) {
-	c.DoJob(func() {
-		c.DoPickItem(item)
-	})
-}
-
-func (c *Char) PickItemById(id int) {
-	c.DoJob(func() {
-		if id < 0 {
+// will add timeStamp for better.
+// it dispatch from scene
+func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall) {
+	//   workaround way: skip self,
+	// should use another way like add timeStap.
+	if cc.Method == "handleMoveStateChange" &&
+		cc.Params[0] == c.id {
+		return
+	}
+	if cc.Method == "handleChatMessage" &&
+		cc.Params[0].(*ChatMessageClient).ChatType != "Local" {
+		c.sock.SendMsg(cc)
+		return
+	}
+	sb, ok := publisher.(SceneObjecter)
+	if !ok {
+		return
+	}
+	switch realSb := sb.(type) {
+	case *Char:
+		_, found := c.viewAOIState.inAreaSceneObjecters[realSb]
+		if found {
+			c.sock.SendMsg(cc)
 			return
 		}
-		item := c.scene.FindItemId(id)
-		if item == nil {
-			return
-		}
-		c.DoPickItem(item)
-		c.world.logger.Println("Char:", c.name, "pick up", item.Name())
-	})
+	default:
+		return
+	}
 }
 
-func (c *Char) MoveByXY(x float64, y float64) {
-	c.Move(vect.Vect{X: vect.Float(x), Y: vect.Float(y)})
+func (c *Char) PublishClientCall(cc *ClientCall) {
+	c.scene.DispatchClientCall(c, cc)
 }
+
+func (c *Char) EquipBySlot(slot int) {
+	if slot < 0 {
+		return
+	}
+	e := c.items.equipment[slot]
+	if e == nil {
+		return
+	}
+	c.items.equipment[slot] = nil
+	hasEquiped := false
+	etype := 0
+	switch e.etype {
+	case Sword:
+		if c.usingEquips.LeftHand() == nil {
+			c.usingEquips.SetLeftHand(e)
+			hasEquiped = true
+			etype = LeftHand
+		} else if c.usingEquips.RightHand() == nil {
+		}
+	}
+	if hasEquiped == false {
+		return
+	}
+	c.CalcAttributes()
+	// update client
+	clientCalls := make([]*ClientCall, 3)
+	clientCalls[0] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params:   []interface{}{c.BioClientAttributes()},
+	}
+	itemsEqUpdate := make(map[string]interface{})
+	itemsEqUpdate[strconv.Itoa(slot)] = nil
+	itemsClientUpdate := struct {
+		Equipment map[string]interface{} `json:"equipment"`
+	}{
+		itemsEqUpdate,
+	}
+	clientCalls[1] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateItems",
+		Params:   []interface{}{itemsClientUpdate},
+	}
+	usingEquipsClientUpdate := make(map[string]interface{})
+	usingEquipsClientUpdate[strconv.Itoa(etype)] = e.EquipmentClient()
+	clientCalls[2] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateUsingEquips",
+		Params:   []interface{}{usingEquipsClientUpdate},
+	}
+	c.sock.SendMsg(clientCalls)
+}
+
+func (c *Char) UnequipBySlot(slot int) {
+	if slot < 0 || slot > 11 || c.usingEquips[slot] == nil {
+		return
+	}
+	// FIXME
+	eq := c.usingEquips[slot]
+	c.usingEquips[slot] = nil
+	hasUnequiped := false
+	itemsEquipSlot := 0
+	for i, isEq := range c.items.equipment {
+		if isEq == nil {
+			itemsEquipSlot = i
+			c.items.equipment[i] = eq
+			hasUnequiped = true
+			break
+		}
+	}
+	if hasUnequiped == false {
+		return
+	}
+	c.CalcAttributes()
+	// update client
+	clientCalls := make([]*ClientCall, 3)
+	clientCalls[0] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params:   []interface{}{c.BioClientAttributes()},
+	}
+	itemsEqUpdate := make(map[string]interface{})
+	itemsEqUpdate[strconv.Itoa(itemsEquipSlot)] = eq.EquipmentClient()
+	itemsClientUpdate := struct {
+		Equipment map[string]interface{} `json:"equipment"`
+	}{
+		itemsEqUpdate,
+	}
+	clientCalls[1] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateItems",
+		Params:   []interface{}{itemsClientUpdate},
+	}
+	usingEquipsClientUpdate := make(map[string]interface{})
+	usingEquipsClientUpdate[strconv.Itoa(slot)] = nil
+	clientCalls[2] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateUsingEquips",
+		Params:   []interface{}{usingEquipsClientUpdate},
+	}
+	c.sock.SendMsg(clientCalls)
+}
+
+func (c *Char) TalkNpcById(nid int) {
+	if nid <= 0 || c.scene == nil {
+		return
+	}
+	npc := c.scene.FindNpcerById(nid)
+	if npc == nil {
+		return
+	}
+	isFirsted := npc.FirstBeTalked(c.Bioer())
+	if isFirsted == false {
+		return
+	}
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleNpcTalkBox",
+		Params:   []interface{}{npc.NpcTalkClient()},
+	}
+	c.SendMsg(clientCall)
+}
+
+func (c *Char) ResponseTalkingNpc(optIndex int) {
+	if optIndex < 0 || c.talkingNpcInfo.target == nil {
+		return
+	}
+	npc := c.talkingNpcInfo.target
+	npc.SelectOption(optIndex, c.Bioer())
+	talkingOpts := c.talkingNpcInfo.options
+	c.talkingNpcInfo.options = append(talkingOpts, optIndex)
+}
+
+func (c *Char) CancelTalkingNpc() {
+	c.Bio.CancelTalkingNpc()
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleNpcTalkBox",
+		Params:   []interface{}{nil},
+	}
+	c.SendMsg(clientCall)
+}
+
+// func (c *Char) DoAddItem(itemer Itemer) {
+// 	switch item := itemer.(type) {
+// 	case *EtcItem:
+// 		for i, eitem := range c.items.etcItem {
+// 			if eitem == nil {
+// 				c.items.etcItem[i] = item
+// 				break
+// 			}
+// 		}
+// 	case *Equipment:
+// 		for i, eitem := range c.items.equipment {
+// 			if eitem == nil {
+// 				c.items.equipment[i] = item
+// 				break
+// 			}
+// 		}
+// 	case *UseSelfItem:
+// 		for i, uitem := range c.items.useSelfItem {
+// 			if uitem == nil {
+// 				c.items.useSelfItem[i] = item
+// 				break
+// 			}
+// 		}
+// 	}
+// }
+
+// func (c *Char) AddItem(itemer Itemer) {
+// 	c.DoJob(func() {
+// 		c.DoAddItem(itemer)
+// 	})
+// }
+
+// func (c *Char) DoPickItem(item Itemer) {
+// 	item.Lock()
+// 	defer item.Unlock()
+// 	if item.GetScene() == nil {
+// 		return
+// 	}
+// 	c.DoAddItem(item)
+// 	item.GetScene().DeleteItem(item)
+// 	item.DoSetScene(nil)
+// }
+
+// // TODO
+// // func add pick item check func
+
+// func (c *Char) PickItem(item Itemer) {
+// 	c.DoJob(func() {
+// 		c.DoPickItem(item)
+// 	})
+// }
+
+// func (c *Char) PickItemById(id int) {
+// 	c.DoJob(func() {
+// 		if id < 0 {
+// 			return
+// 		}
+// 		item := c.scene.FindItemId(id)
+// 		if item == nil {
+// 			return
+// 		}
+// 		c.DoPickItem(item)
+// 		c.world.logger.Println("Char:", c.name, "pick up", item.Name())
+// 	})
+// }
+
+// func (c *Char) MoveByXY(x float64, y float64) {
+// 	c.Move(vect.Vect{X: vect.Float(x), Y: vect.Float(y)})
+// }

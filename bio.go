@@ -1,7 +1,6 @@
 package dao
 
 import (
-	"fmt"
 	"math"
 	"time"
 
@@ -9,636 +8,720 @@ import (
 	"github.com/xuhaojun/chipmunk/vect"
 )
 
+var (
+	BioGroup = chipmunk.Group(1)
+)
+
 type Bioer interface {
 	Name() string
 	Id() int
-	GetId() int
 	SetId(int)
-	DoJob(func()) error
-	Run()
-	ShutDown()
-	Move(vect.Vect)
+	Move(x, y float32)
 	ShutDownMove()
-	SetMoveTo(vect.Vect)
 	Body() *chipmunk.Body
 	Scene() *Scene
 	SetScene(*Scene)
-	GetScene() *Scene
-	SetIdAndScene(int, *Scene)
+	BioClient() *BioClient
+	BioClientBasic() *BioClientBasic
+	BioClientAttributes() *BioClientAttributes
+	SceneObjecter() SceneObjecter
+	TalkingNpcInfo() *TalkingNpcInfo
+	SetTalkingNpcInfo(*TalkingNpcInfo)
+	SetPosition(float32, float32)
 }
 
-// BioBase imple Bioer and SceneBioer
-type BioBase struct {
+type Bio struct {
+	world      *World
 	id         int
 	name       string
 	body       *chipmunk.Body
 	bodyViewId int
 	scene      *Scene
-	moveState  *MoveState
+	//
+	moveState *MoveState
+	//
+	clientCallPublisher ClientCallPublisher
+	//
 	// aoi
-	enableViewAOI bool
-	viewAOIRadius float32
-	viewAOI       *ViewAOI
-	// base
-	job  chan func()
-	quit chan struct{}
+	// enableViewAOI bool
+	viewAOIState *ViewAOIState
+	// viewAOIRadius float32
+	// viewAOI       *ViewAOI
+	//
+	level int
+	// main attribue
+	str int
+	vit int
+	wis int
+	spi int
+	// sub attribue
+	def   int
+	mdef  int
+	atk   int
+	matk  int
+	maxHp int
+	hp    int
+	maxMp int
+	mp    int
+	// callbacks
+	OnKill     func(target Bioer)
+	OnBeKilled func(killer Bioer)
+	// skills
+	normalAttackState *NormalAttackState
+	// npc interactive
+	talkingNpcInfo *TalkingNpcInfo
+}
+
+type BioClient struct {
+	Id         int    `json:"id"`
+	Name       string `json:"name"`
+	BodyViewId int    `json:"bodyViewId"`
+	Level      int    `json:"level"`
+	// main attribue
+	Str int `json:"str"`
+	Vit int `json:"vit"`
+	Wis int `json:"wis"`
+	Spi int `json:"spi"`
+	// sub attribue
+	Def   int `json:"def"`
+	Mdef  int `json:"mdef"`
+	Atk   int `json:"atk"`
+	Matk  int `json:"matk"`
+	MaxHp int `json:"maxHp"`
+	Hp    int `json:"hp"`
+	MaxMp int `json:"maxMp"`
+	Mp    int `json:"mp"`
+	//
+	MoveBaseVelocity *CpVectClient `json:"moveBaseVelocity"`
+	//
+	CpBody *CpBodyClient `json:"cpBody"`
+}
+
+type BioClientBasic struct {
+	Id         int    `json:"id"`
+	Name       string `json:"name"`
+	BodyViewId int    `json:"bodyViewId"`
+	Level      int    `json:"level"`
+	//
+	MaxHp int `json:"maxHp"`
+	Hp    int `json:"hp"`
+	MaxMp int `json:"maxMp"`
+	Mp    int `json:"mp"`
+	//
+	MoveBaseVelocity *CpVectClient `json:"moveBaseVelocity"`
+	//
+	CpBody *CpBodyClient `json:"cpBody"`
+}
+
+type BioClientAttributes struct {
+	// main attribute
+	Str int `json:"str"`
+	Vit int `json:"vit"`
+	Wis int `json:"wis"`
+	Spi int `json:"spi"`
+	// sub attribute
+	Def   int `json:"def"`
+	Mdef  int `json:"mdef"`
+	Atk   int `json:"atk"`
+	Matk  int `json:"matk"`
+	MaxHp int `json:"maxHp"`
+	Hp    int `json:"hp"`
+	MaxMp int `json:"maxMp"`
+	Mp    int `json:"mp"`
+}
+
+type CpVectClient struct {
+	X vect.Float `json:"x"`
+	Y vect.Float `json:"y"`
+}
+
+type CpBodyClient struct {
+	Mass     vect.Float    `json:"mass"`
+	Angle    vect.Float    `json:"angle"`
+	Shapes   []interface{} `json:"shapes"`
+	Position *CpVectClient `json:"position"`
+}
+
+type ViewAOIState struct {
+	running bool
+	//
+	stepDone bool
+	//
+	body *chipmunk.Body
+	//
+	radius float32
+	//
+	inAreaSceneObjecters map[SceneObjecter]struct{}
+	// callbacks
+	OnSceneObjectEnter func(sb SceneObjecter)
+	OnSceneObjectLeave func(sb SceneObjecter)
+}
+
+type InAreaSceneObjecters map[SceneObjecter]struct{}
+
+// func (sbs InAreaSceneObjecters) FindBioer(b Bioer) Bioer {
+// 	_, ok := sbs[b.SceneObjecter()]
+// 	if ok {
+// 		return b
+// 	}
+// 	return nil
+// }
+
+// func (sbs InAreaSceneObjecters) FindSceneObjecter(b SceneObjecter) SceneObjecter {
+// 	_, ok := sbs[b]
+// 	if ok {
+// 		return b
+// 	}
+// 	return nil
+// }
+
+func NewViewAOIState() *ViewAOIState {
+	return &ViewAOIState{
+		running: false,
+	}
 }
 
 type MoveState struct {
-	moveCheckFunc func(skilCheckRunning bool) bool
-	targetPos     vect.Vect
-	baseVelocity  vect.Vect
-	lastVelocity  vect.Vect
-	lastPosition  vect.Vect
-	lastAngle     vect.Float
-	running       bool
-	space         *chipmunk.Space
-	wallBodys     []*chipmunk.Body
-	quit          chan struct{}
+	running          bool
+	beforeMoveFunc   func(delta float32) bool
+	targetPos        vect.Vect
+	lastTargetPos    vect.Vect
+	baseVelocity     vect.Vect
+	lastBaseVelocity vect.Vect
 }
 
-func NewBioBase() *BioBase {
+type MoveStateClient struct {
+	Running      bool          `json:"running"`
+	TargetPos    *CpVectClient `json:"targetPos"`
+	BaseVelocity *CpVectClient `json:"baseVelocity"`
+}
+
+func (m *MoveState) MoveStateClient() *MoveStateClient {
+	return &MoveStateClient{
+		Running: m.running,
+		TargetPos: &CpVectClient{
+			m.targetPos.X,
+			m.targetPos.Y,
+		},
+		BaseVelocity: &CpVectClient{
+			m.baseVelocity.X,
+			m.baseVelocity.Y,
+		},
+	}
+}
+
+func NewBio(w *World) *Bio {
 	body := chipmunk.NewBody(1, 1)
 	circle := chipmunk.NewCircle(vect.Vector_Zero, float32(32.0))
+	circle.Group = BioGroup
 	circle.SetFriction(0)
 	circle.SetElasticity(0)
 	body.SetPosition(vect.Vector_Zero)
 	body.SetVelocity(0, 0)
 	body.SetMoment(chipmunk.Inf)
-	body.AddShape(circle)
 	body.IgnoreGravity = true
-	bio := &BioBase{
-		name:       "",
-		bodyViewId: 0,
-		body:       body,
-		scene:      nil,
+	body.AddShape(circle)
+	bio := &Bio{
+		world: w,
+		name:  "",
+		body:  body,
+		scene: nil,
 		moveState: &MoveState{
 			running:      false,
-			baseVelocity: vect.Vect{X: 10, Y: 10},
-			quit:         make(chan struct{}),
+			baseVelocity: vect.Vect{X: 74, Y: 74},
 		},
-		enableViewAOI: true,
-		viewAOIRadius: 160.0,
-		job:           make(chan func(), 256),
-		quit:          make(chan struct{}),
+		viewAOIState: &ViewAOIState{
+			running:              true,
+			stepDone:             false,
+			radius:               1000.0,
+			inAreaSceneObjecters: make(map[SceneObjecter]struct{}),
+		},
+		str: 1,
+		vit: 1,
+		wis: 1,
+		spi: 1,
+		//
+		talkingNpcInfo: &TalkingNpcInfo{},
 	}
-	bio.moveState.moveCheckFunc = bio.MoveCheckFunc()
-	bio.viewAOI = NewViewAOI(bio.viewAOIRadius)
-	bio.viewAOI.viewAOICheckFunc = bio.ViewAOICheckFunc()
+	viewAOIState := bio.viewAOIState
+	viewAOIState.OnSceneObjectEnter = bio.OnSceneObjectEnterViewAOIFunc()
+	viewAOIState.OnSceneObjectLeave = bio.OnSceneObjectLeaveViewAOIFunc()
+	viewAOIBody := chipmunk.NewBody(1, 1)
+	viewAOIBody.CallbackHandler = viewAOIState
+	viewAOIShape := chipmunk.NewCircle(vect.Vector_Zero, bio.viewAOIState.radius)
+	viewAOIShape.IsSensor = true
+	viewAOIBody.AddShape(viewAOIShape)
+	viewAOIBody.SetPosition(body.Position())
+	viewAOIState.body = viewAOIBody
+	body.UserData = bio
+	bio.normalAttackState = &NormalAttackState{
+		attackTimeStep: 2 * time.Second,
+		attackRadius:   2.0,
+		running:        false,
+	}
+	bio.clientCallPublisher = bio.ClientCallPublisher()
 	return bio
 }
 
-func (b *BioBase) Bioer() Bioer {
-	return b
+func (b *Bio) TalkingNpcInfo() *TalkingNpcInfo {
+	return b.talkingNpcInfo
 }
 
-func (b *BioBase) Run() {
-	if b.enableViewAOI == true {
-		go b.RunViewAOI()
-	}
-	for {
-		select {
-		case job, ok := <-b.job:
-			if !ok {
-				return
-			}
-			job()
-		case <-b.quit:
-			close(b.job)
-			if b.scene != nil {
-				b.scene.DeleteBio(b)
-				b.scene = nil
-				b.id = 0
-			}
-			b.quit <- struct{}{}
-			return
+func (b *Bio) SetTalkingNpcInfo(tNpc *TalkingNpcInfo) {
+	b.talkingNpcInfo = tNpc
+}
+
+func (b *Bio) CancelTalkingNpc() {
+	if b.talkingNpcInfo.target != nil {
+		b.talkingNpcInfo = &TalkingNpcInfo{
+			target:  nil,
+			options: make([]int, 0),
 		}
 	}
 }
 
-func (b *BioBase) DoJob(f func()) (err error) {
-	defer handleErrSendCloseChanel(&err)
-	b.job <- f
-	return
+func (b *Bio) SetPosition(x float32, y float32) {
+	b.body.SetPosition(
+		vect.Vect{X: vect.Float(x),
+			Y: vect.Float(y)})
 }
 
-func (b *BioBase) ShutDown() {
-	b.quit <- struct{}{}
-	<-b.quit
+type NormalAttackState struct {
+	attackTimeStep time.Duration
+	attackRadius   float32
+	running        bool
 }
 
-func (b *BioBase) Name() string {
-	nameC := make(chan string, 1)
-	err := b.DoJob(func() {
-		nameC <- b.name
-	})
-	if err != nil {
-		close(nameC)
-		return ""
+func (b *Bio) OnBeAddedToScene(s *Scene) {
+	s.AddBody(b.viewAOIState.body)
+}
+
+func (b *Bio) OnBeRemovedToScene(s *Scene) {
+	s.RemoveBody(b.viewAOIState.body)
+}
+
+func (b *Bio) OnSceneObjectEnterViewAOIFunc() func(sb SceneObjecter) {
+	return func(enter SceneObjecter) {
+		// new bio enter may be attack it if this is mob
+		// new bio enter may be Update to client screen it if this is mob
 	}
-	return <-nameC
 }
 
-func (b *BioBase) GetId() int {
+func (b *Bio) OnSceneObjectLeaveViewAOIFunc() func(sb SceneObjecter) {
+	return func(leaver SceneObjecter) {
+	}
+}
+
+func (b *Bio) SceneObjecter() SceneObjecter {
+	return b
+}
+
+func (b *Bio) Bioer() Bioer {
+	return b
+}
+
+func (b *Bio) Move(x, y float32) {
+	b.moveState.running = true
+	b.moveState.targetPos = vect.Vect{
+		X: vect.Float(x),
+		Y: vect.Float(y),
+	}
+}
+
+func (b *Bio) ShutDownMove() {
+	b.moveState.running = false
+	b.body.SetForce(0, 0)
+	b.body.SetVelocity(0, 0)
+	b.PublishMoveState()
+	// logger := b.scene.world.logger
+	// logger.Println("position", b.body.Position())
+	// logger.Println("velocity", b.body.Velocity())
+}
+
+func (b *Bio) PublishMoveState() {
+	clientCall := &ClientCall{
+		Receiver: "bio",
+		Method:   "handleMoveStateChange",
+		Params: []interface{}{
+			b.id,
+			b.moveState.MoveStateClient(),
+		},
+	}
+	b.clientCallPublisher.PublishClientCall(clientCall)
+}
+
+func (b *Bio) MoveUpdate(delta float32) {
+	if b.moveState.running == false {
+		return
+	}
+	if !vect.Equals(b.moveState.targetPos, b.moveState.lastTargetPos) ||
+		!vect.Equals(b.moveState.lastBaseVelocity, b.moveState.baseVelocity) {
+		b.PublishMoveState()
+	}
+	if vect.Equals(b.body.Position(), b.moveState.targetPos) {
+		b.ShutDownMove()
+		return
+	}
+	if b.moveState.beforeMoveFunc != nil {
+		keepMove := b.moveState.beforeMoveFunc(delta)
+		if keepMove == false {
+			return
+		}
+	}
+	moveVelocity := b.moveState.baseVelocity
+	cpBodyPos := b.body.Position()
+	moveVect := vect.Vect{
+		X: b.moveState.targetPos.X - cpBodyPos.X,
+		Y: b.moveState.targetPos.Y - cpBodyPos.Y,
+	}
+	if math.Abs(float64(delta*float32(moveVelocity.X))) >=
+		math.Abs(float64(moveVect.X)) {
+		cpBodyPos = b.body.Position()
+		reachX := vect.Vect{
+			X: b.moveState.targetPos.X,
+			Y: cpBodyPos.Y,
+		}
+		b.body.SetPosition(reachX)
+		moveVect.X = 0
+	}
+	if math.Abs(float64(delta*float32(moveVelocity.Y))) >=
+		math.Abs(float64(moveVect.Y)) {
+		cpBodyPos = b.body.Position()
+		reachY := vect.Vect{
+			X: cpBodyPos.X,
+			Y: b.moveState.targetPos.Y,
+		}
+		b.body.SetPosition(reachY)
+		moveVect.Y = 0
+	}
+	if moveVect.X < 0 {
+		moveVelocity.X *= -1
+	} else if moveVect.X == 0 {
+		moveVelocity.X = 0
+	}
+	if moveVect.Y < 0 {
+		moveVelocity.Y *= -1
+	} else if moveVect.Y == 0 {
+		moveVelocity.Y = 0
+	}
+	cpBody := b.body
+	vel := cpBody.Velocity()
+	m := cpBody.Mass()
+	t := delta
+	desiredVel := moveVelocity
+	velChange := vect.Vect{
+		X: desiredVel.X - vel.X,
+		Y: desiredVel.Y - vel.Y,
+	}
+	force := vect.Vect{
+		X: m * velChange.X / vect.Float(t),
+		Y: m * velChange.Y / vect.Float(t),
+	}
+	cpBody.SetForce(float32(force.X), float32(force.Y))
+	cpBody.LookAt(b.moveState.targetPos)
+	b.moveState.lastTargetPos = b.moveState.targetPos
+	b.moveState.lastBaseVelocity = b.moveState.baseVelocity
+	// logger := b.scene.world.logger
+	// logger.Println("moveVect", moveVect)
+	// logger.Println("position", b.body.Position())
+	// logger.Println("velocity", b.body.Velocity())
+	// logger.Println("degree", b.body.Angle()*(180/math.Pi))
+	// logger.Println("delta", delta)
+	// logger.Println("force", force)
+}
+
+func (b *Bio) BeforeUpdate(delta float32) {
+}
+
+func (b *Bio) AfterUpdate(delta float32) {
+	b.MoveUpdate(delta)
+	b.ViewAOIUpdate(delta)
+}
+
+func (b *Bio) Name() string {
+	return b.name
+}
+
+func (b *Bio) Id() int {
 	return b.id
 }
 
-func (b *BioBase) GetScene() *Scene {
+func (b *Bio) Scene() *Scene {
 	return b.scene
 }
 
-func (b *BioBase) Scene() *Scene {
-	sceneC := make(chan *Scene, 1)
-	err := b.DoJob(func() {
-		sceneC <- b.scene
-	})
-	if err != nil {
-		close(sceneC)
-		return nil
-	}
-	return <-sceneC
+func (b *Bio) SetScene(s *Scene) {
+	b.scene = s
 }
 
-func (b *BioBase) SetScene(s *Scene) {
-	b.DoJob(func() {
-		b.scene = s
-	})
+func (b *Bio) Body() *chipmunk.Body {
+	return b.body
 }
 
-func (b *BioBase) Body() *chipmunk.Body {
-	bodyC := make(chan *chipmunk.Body, 1)
-	err := b.DoJob(func() {
-		bodyC <- b.body.Clone()
-	})
-	if err != nil {
-		close(bodyC)
-		return nil
-	}
-	return <-bodyC
-}
-
-func (b *BioBase) SetId(id int) {
-	b.DoJob(func() {
-		b.id = id
-	})
-}
-
-func (b *BioBase) DoSetIdAndScene(id int, scene *Scene) {
+func (b *Bio) SetId(id int) {
 	b.id = id
-	b.scene = scene
 }
 
-func (b *BioBase) SetIdAndScene(id int, scene *Scene) {
-	b.DoJob(func() {
-		b.id = id
-		b.scene = scene
-	})
-}
-
-func (b *BioBase) Id() int {
-	idC := make(chan int, 1)
-	err := b.DoJob(func() {
-		idC <- b.id
-	})
-	if err != nil {
-		close(idC)
-		return 0
-	}
-	return <-idC
-}
-
-func (b *BioBase) ClientCallPublisher() ClientCallPublisher {
+func (b *Bio) ClientCallPublisher() ClientCallPublisher {
 	return b
 }
 
-func (b *BioBase) PublishClientCall(c *ClientCall) {
-	b.DoJob(func() {
-		if b.scene == nil {
-			return
-		}
-		b.scene.DispatchClientCall(b.ClientCallPublisher(), c)
-	})
+func (b *Bio) PublishClientCall(c *ClientCall) {
+	b.scene.DispatchClientCall(b, c)
 }
 
-func (b *BioBase) MoveCheckFunc() func(bool) bool {
-	return func(skipCheckRunning bool) bool {
-		tmpRunning := (b.moveState.running == true)
-		if skipCheckRunning == true {
-			tmpRunning = false
-		}
-		reached := vect.Equals(b.moveState.targetPos, b.body.Position())
-		if reached == true ||
-			b.scene == nil ||
-			tmpRunning == true {
-			return false
-		}
-		return true
+func (b *Bio) CalcAttributes() {
+	b.atk = b.str * 5
+	b.maxHp = b.vit * 5
+	b.def = b.vit * 3
+	b.maxMp = b.wis * 5
+	b.mdef = b.wis * 3
+	if b.hp > b.maxHp {
+		b.hp = b.maxHp
+	}
+	if b.mp > b.maxMp {
+		b.mp = b.maxMp
 	}
 }
 
-func (b *BioBase) MoveSecondCheckFunc() func() bool {
-	return func() bool {
-		space := chipmunk.NewSpace()
-		clone := b.body.Clone()
-		clone.SetVelocity(
-			float32(b.moveState.baseVelocity.X),
-			float32(b.moveState.baseVelocity.Y))
-		moveVelocity := clone.Velocity()
-		moveVect := vect.Sub(b.moveState.targetPos, clone.Position())
-		if float32(math.Abs(float64((1.0/60.0)*(moveVelocity.X)))) >
-			float32(math.Abs(float64(moveVect.X))) {
-			moveVect.X = 0
-		}
-		if float32(math.Abs(float64((1.0/60.0)*(moveVelocity.Y)))) >
-			float32(math.Abs(float64(moveVect.Y))) {
-			moveVect.Y = 0
-		}
-		if moveVect.X < 0 {
-			moveVelocity.X *= -1
-		} else if moveVect.X == 0 {
-			moveVelocity.X = 0
-		} else {
-			moveVelocity.X *= 1
-		}
-		if moveVect.Y < 0 {
-			moveVelocity.Y *= -1
-		} else if moveVect.Y == 0 {
-			moveVelocity.Y = 0
-		} else {
-			moveVelocity.Y *= 1
-		}
-		clone.SetVelocity(
-			float32(moveVelocity.X),
-			float32(moveVelocity.Y))
-		newPos := clone.Position()
-		// newPos.X += (moveVelocity.X * 1.0 / 60.0)
-		// newPos.Y += (moveVelocity.Y * 1.0 / 60.0)
-		newPos.X += 5
-		newPos.Y += 5
-		clone.SetPosition(newPos)
-		collision := &BioOnStaticCallbacks{false}
-		clone.CallbackHandler = collision
-		space.AddBody(clone)
-		wallBodys := b.scene.WallBodys()
-		for _, body := range wallBodys {
-			body.CallbackHandler = collision
-			space.AddBody(body)
-		}
-		space.Step(1.0 / 60.0)
-		space.Step(1.0 / 60.0)
-		space.Step(1.0 / 60.0)
-		space.Step(1.0 / 60.0)
-		space.Step(1.0 / 60.0)
-		fmt.Println("second collision.isOverlap: ",
-			collision.isOverlap)
-		return !collision.isOverlap
-	}
-}
-
-func (b *BioBase) SetMoveTo(pos vect.Vect) {
-	b.DoJob(func() {
-		b.moveState.targetPos = pos
-	})
-}
-
-type BioOnStaticCallbacks struct {
-	isOverlap bool
-}
-
-func (na *BioOnStaticCallbacks) CollisionEnter(arbiter *chipmunk.Arbiter) bool {
-	na.isOverlap = true
-	fmt.Println("wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww")
-	fmt.Println(arbiter.BodyA.Position())
-	fmt.Println(arbiter.BodyB.Position())
-	fmt.Println("wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww")
-	return true
-}
-
-func (na *BioOnStaticCallbacks) CollisionPreSolve(arbiter *chipmunk.Arbiter) bool {
-	return true
-}
-
-func (na *BioOnStaticCallbacks) CollisionPostSolve(arbiter *chipmunk.Arbiter) {}
-
-func (na *BioOnStaticCallbacks) CollisionExit(arbiter *chipmunk.Arbiter) {}
-
-func (b *BioBase) Move(pos vect.Vect) {
-	moveCheckC := make(chan bool)
-	err := b.DoJob(func() {
-		b.moveState.targetPos = pos
-		check := b.moveState.moveCheckFunc(false)
-		if check == true {
-			secondCheck := b.MoveSecondCheckFunc()()
-			if secondCheck == false {
-				moveCheckC <- false
-				return
-			}
-			b.moveState.running = true
-			b.moveState.space = chipmunk.NewSpace()
-			b.moveState.wallBodys = b.scene.WallBodys()
-			b.moveState.space.AddBody(b.body)
-			for _, body := range b.moveState.wallBodys {
-				b.moveState.space.AddBody(body)
-			}
-		}
-		moveCheckC <- check
-	})
-	if err != nil || <-moveCheckC == false {
-		close(moveCheckC)
+func (b *Bio) IncHp(n int) {
+	if b.hp <= 0 || n < 0 {
 		return
 	}
-	timeC := time.Tick((1.0 * time.Second / 60.0)) // 60 fps
-	defer func() {
-		b.DoJob(func() {
-			b.moveState.running = false
-			b.body = b.body.Clone()
-			b.body.SetVelocity(0.0, 0.0)
-		})
-	}()
-	for {
-		select {
-		case <-timeC:
-			err := b.DoJob(func() {
-				moveCheck := b.moveState.moveCheckFunc(true)
-				if moveCheck == false {
-					moveCheckC <- false
-					return
-				}
-				space := b.moveState.space
-				collisionOnStatic := &BioOnStaticCallbacks{false}
-				b.body.CallbackHandler = collisionOnStatic
-				// statics := b.scene.StaticBodys()
-				// boxWall := chipmunk.b.body(1, 1)
-				// wallTop := chipmunk.NewSegment(
-				// 	vect.Vect{X: -100, Y: 70},
-				// 	vect.Vect{X: 100, Y: 70}, 0)
-				// wallTop.SetFriction(0)
-				// wallTop.SetElasticity(0)
-				// boxWall.AddShape(wallTop)
-				// boxWall.CallbackHandler = collisionOnStatic
-				// space.AddBody(boxWall)
-				// TODO
-				// 1. bio need lookat target x y
-				// 2. send clientcall to chars on velocity or angle changed
-				b.body.SetVelocity(
-					float32(b.moveState.baseVelocity.X),
-					float32(b.moveState.baseVelocity.Y))
-				moveVelocity := b.body.Velocity()
-				moveVect := vect.Sub(b.moveState.targetPos, b.body.Position())
-				// check if this move one step > move vect directly reach it.
-				if float32(math.Abs(float64((1.0/60.0)*(moveVelocity.X)))) >
-					float32(math.Abs(float64(moveVect.X))) {
-					reachX := vect.Vect{
-						X: b.moveState.targetPos.X,
-						Y: b.body.Position().Y,
-					}
-					b.body.SetPosition(reachX)
-					moveVect.X = 0
-				}
-				if float32(math.Abs(float64((1.0/60.0)*(moveVelocity.Y)))) >
-					float32(math.Abs(float64(moveVect.Y))) {
-					reachY := vect.Vect{
-						X: b.body.Position().X,
-						Y: b.moveState.targetPos.Y,
-					}
-					b.body.SetPosition(reachY)
-					moveVect.Y = 0
-				}
-				if vect.Equals(b.body.Position(), b.moveState.targetPos) ||
-					vect.Equals(b.body.Velocity(), vect.Vector_Zero) {
-					moveCheckC <- false
-					return
-				}
-				if moveVect.X < 0 {
-					moveVelocity.X *= -1
-				} else if moveVect.X == 0 {
-					moveVelocity.X = 0
-				} else {
-					moveVelocity.X *= 1
-				}
-				if moveVect.Y < 0 {
-					moveVelocity.Y *= -1
-				} else if moveVect.Y == 0 {
-					moveVelocity.Y = 0
-				} else {
-					moveVelocity.Y *= 1
-				}
-				b.body.SetVelocity(
-					float32(moveVelocity.X),
-					float32(moveVelocity.Y))
-				if vect.Equals(b.body.Position(), b.moveState.targetPos) ||
-					vect.Equals(b.body.Velocity(), vect.Vector_Zero) {
-					moveCheckC <- false
-					return
-				}
-				b.body.LookAt(b.moveState.targetPos)
-				b.moveState.lastPosition = b.body.Position()
-				b.moveState.lastVelocity = b.body.Velocity()
-				b.moveState.lastAngle = b.body.Angle()
-				space.Step(1.0 / 60.0)
-				// for _, body := range statics {
-				// 	space.RemoveBody(body)
-				// }
-				// space.RemoveBody(boxWall)
-				// space.RemoveBody(newBody)
-				// TODO
-				// publish charclient if velocity or angle change
-				fmt.Println("b.body velocity X:", b.body.Velocity().X)
-				fmt.Println("b.body velocity Y:", b.body.Velocity().Y)
-				fmt.Println("b.body X:", b.body.Position().X)
-				fmt.Println("b.body Y:", b.body.Position().Y)
-				// space.Step(1.0 / 60.0)
-				if vect.Equals(b.body.Position(), b.moveState.targetPos) ||
-					vect.Equals(b.body.Velocity(), vect.Vector_Zero) ||
-					collisionOnStatic.isOverlap == true {
-					moveCheckC <- false
-					return
-				}
-				b.body.CallbackHandler = nil
-				moveCheckC <- true
-			})
-			if err != nil {
-				return
-			}
-			mCheck, ok := <-moveCheckC
-			if ok == false || mCheck == false {
-				fmt.Println("wiwi")
-				return
-			}
-		case <-b.moveState.quit:
-			return
+	tmpHp := b.hp
+	tmpHp += n
+	if tmpHp >= b.maxHp {
+		return
+	} else {
+		b.hp = tmpHp
+	}
+}
+
+func (b *Bio) DecHp(n int, killer Bioer) bool {
+	if b.hp <= 0 || n < 0 {
+		return false
+	}
+	tmpHp := b.hp
+	tmpHp -= n
+	if tmpHp <= 0 {
+		b.hp = 0
+		if b.OnBeKilled != nil {
+			b.OnBeKilled(killer)
 		}
-	}
-}
-
-func (b *BioBase) ShutDownMove() {
-	b.DoJob(func() {
-		if b.moveState.running {
-			b.moveState.quit <- struct{}{}
-		}
-	})
-}
-
-type CircleAOI struct {
-	running bool
-	radius  float32
-	body    *chipmunk.Body
-	bioers  map[Bioer]struct{}
-	quit    chan struct{}
-}
-
-func NewCircleAOI(r float32) *CircleAOI {
-	body := chipmunk.NewBody(1, 1)
-	circle := chipmunk.NewCircle(vect.Vector_Zero, r)
-	circle.IsSensor = true
-	body.SetPosition(vect.Vector_Zero)
-	body.AddShape(circle)
-	body.IgnoreGravity = true
-	return &CircleAOI{
-		running: false,
-		radius:  r,
-		body:    body,
-		bioers:  make(map[Bioer]struct{}),
-		quit:    make(chan struct{}, 1),
-	}
-}
-
-type ViewAOI struct {
-	*CircleAOI
-	viewAOICheckFunc func(skipCheckRunning bool) bool
-	OnBioEnterFunc   func(enter Bioer)
-	OnBioLeaveFunc   func(leaver Bioer)
-}
-
-func NewViewAOI(r float32) *ViewAOI {
-	aoi := &ViewAOI{NewCircleAOI(r), nil, nil, nil}
-	return aoi
-}
-
-type ViewAOICallbacks struct {
-	inAreaBioers map[Bioer]struct{}
-}
-
-func NewViewAOICallbacks() *ViewAOICallbacks {
-	return &ViewAOICallbacks{
-		make(map[Bioer]struct{}),
-	}
-}
-
-func (v *ViewAOICallbacks) CollisionEnter(arbiter *chipmunk.Arbiter) bool {
-	switch val := arbiter.BodyB.UserData.(type) {
-	case Bioer:
-		v.inAreaBioers[val] = struct{}{}
-		// case Itemer:
+		return true
+	} else {
+		b.hp = tmpHp
 	}
 	return false
 }
 
-func (v *ViewAOICallbacks) CollisionPreSolve(arbiter *chipmunk.Arbiter) bool {
-	return false
-}
-
-func (v *ViewAOICallbacks) CollisionPostSolve(arbiter *chipmunk.Arbiter) {}
-
-func (v *ViewAOICallbacks) CollisionExit(arbiter *chipmunk.Arbiter) {}
-
-func (b *BioBase) ViewAOICheckFunc() func(bool) bool {
-	return func(skipCheckRunning bool) bool {
-		tmpRunning := (b.viewAOI.running == true)
-		if skipCheckRunning == true {
-			tmpRunning = false
-		}
-		if b.scene == nil ||
-			tmpRunning == true {
-			return false
-		}
-		b.viewAOI.running = true
-		return true
-	}
-}
-
-func (b *BioBase) RunViewAOI() {
-	viewAOICheckC := make(chan bool, 1)
-	err := b.DoJob(func() {
-		viewAOICheckC <- b.viewAOI.viewAOICheckFunc(false)
-	})
-	if err != nil || <-viewAOICheckC == false {
-		close(viewAOICheckC)
+func (b *Bio) DecMp(n int) {
+	if b.mp <= 0 || b.IsDied() {
 		return
 	}
-	timeC := time.Tick(100.0 * time.Millisecond)
-	defer func() {
-		b.DoJob(func() {
-			b.viewAOI.running = false
-		})
-	}()
-	for {
-		select {
-		case <-timeC:
-			err := b.DoJob(func() {
-				viewAOICheck := b.viewAOI.viewAOICheckFunc(true)
-				if viewAOICheck == false {
-					viewAOICheckC <- false
-					return
-				} else {
-					viewAOICheckC <- true
-				}
-				bioers := b.scene.Bioers()
-				if bioers == nil {
-					return
-				}
-				space := chipmunk.NewSpace()
-				b.viewAOI.body.CallbackHandler = NewViewAOICallbacks()
-				space.AddBody(b.viewAOI.body)
-				for _, bioer := range bioers {
-					body := bioer.Body()
-					if body == nil {
-						continue
-					}
-					body.UserData = bioer
-					body.SetVelocity(0, 0)
-					body.IgnoreGravity = true
-					space.AddBody(body)
-				}
-				space.Step(1)
-				foundBioers := b.viewAOI.body.
-					CallbackHandler.(*ViewAOICallbacks).
-					inAreaBioers
-				for bioer, _ := range b.viewAOI.bioers {
-					_, in := foundBioers[bioer]
-					if in == false {
-						delete(b.viewAOI.bioers, bioer)
-						if b.viewAOI.OnBioLeaveFunc != nil {
-							b.viewAOI.OnBioLeaveFunc(bioer)
-						}
-					} else {
-						delete(foundBioers, bioer)
-					}
-				}
-				for bioer, _ := range foundBioers {
-					b.viewAOI.bioers[bioer] = struct{}{}
-					if b.viewAOI.OnBioEnterFunc != nil {
-						b.viewAOI.OnBioEnterFunc(bioer)
-					}
-				}
-			})
-			if err != nil {
-				return
+	tmpMp := b.mp
+	tmpMp -= n
+	if tmpMp <= 0 {
+		b.mp = 0
+	} else {
+		b.mp = tmpMp
+	}
+}
+
+func (b *Bio) Level() int {
+	return b.level
+}
+
+func (b *Bio) IsDied() bool {
+	return b.hp <= 0
+}
+
+func ToCpBodyClient(body *chipmunk.Body) *CpBodyClient {
+	// TODO
+	// handle more shape
+	shapeClients := make([]interface{}, len(body.Shapes))
+	for i, shape := range body.Shapes {
+		var shapeClient map[string]interface{}
+		switch realShape := shape.ShapeClass.(type) {
+		case *chipmunk.CircleShape:
+			shapeClient = map[string]interface{}{
+				"type":   "circle",
+				"group":  shape.Group,
+				"layer":  shape.Layer,
+				"radius": realShape.Radius,
+				"position": &CpVectClient{
+					realShape.Position.X,
+					realShape.Position.Y,
+				},
 			}
-			check, ok := <-viewAOICheckC
-			if ok == false || check == false {
-				return
+		case *chipmunk.SegmentShape:
+			shapeClient = map[string]interface{}{
+				"type":   "segment",
+				"group":  shape.Group,
+				"layer":  shape.Layer,
+				"radius": realShape.Radius,
+				"a": &CpVectClient{
+					realShape.A.X,
+					realShape.A.Y,
+				},
+				"b": &CpVectClient{
+					realShape.B.X,
+					realShape.B.Y,
+				},
 			}
-		case <-b.viewAOI.quit:
-			return
+		}
+		shapeClients[i] = shapeClient
+	}
+	var cpBodyClient *CpBodyClient
+	pos := body.Position()
+	if body.IsStatic() {
+		cpBodyClient = &CpBodyClient{
+			Shapes: shapeClients,
+		}
+	} else {
+		cpBodyClient = &CpBodyClient{
+			Mass:  body.Mass(),
+			Angle: body.Angle(),
+			Position: &CpVectClient{
+				pos.X,
+				pos.Y,
+			},
+			Shapes: shapeClients,
+		}
+	}
+	return cpBodyClient
+}
+
+func (b *Bio) BioClient() *BioClient {
+	return &BioClient{
+		Id:         b.id,
+		Name:       b.name,
+		Level:      b.level,
+		BodyViewId: b.bodyViewId,
+		//
+		Str: b.str,
+		Vit: b.vit,
+		Wis: b.wis,
+		Spi: b.spi,
+		//
+		Def:   b.def,
+		Mdef:  b.mdef,
+		Atk:   b.atk,
+		Matk:  b.matk,
+		MaxHp: b.maxHp,
+		Hp:    b.hp,
+		MaxMp: b.maxMp,
+		Mp:    b.mp,
+		//
+		MoveBaseVelocity: &CpVectClient{
+			b.moveState.baseVelocity.X,
+			b.moveState.baseVelocity.Y,
+		},
+		//
+		CpBody: ToCpBodyClient(b.body),
+	}
+}
+
+func (b *Bio) BioClientBasic() *BioClientBasic {
+	return &BioClientBasic{
+		Id:         b.id,
+		Name:       b.name,
+		Level:      b.level,
+		BodyViewId: b.bodyViewId,
+		//
+		Hp:    b.hp,
+		MaxHp: b.maxHp,
+		MaxMp: b.maxMp,
+		Mp:    b.mp,
+		//
+		MoveBaseVelocity: &CpVectClient{
+			b.moveState.baseVelocity.X,
+			b.moveState.baseVelocity.Y,
+		},
+		//
+		CpBody: ToCpBodyClient(b.body),
+	}
+}
+
+func (b *Bio) BioClientAttributes() *BioClientAttributes {
+	return &BioClientAttributes{
+		Str:   b.str,
+		Vit:   b.vit,
+		Wis:   b.wis,
+		Spi:   b.spi,
+		Def:   b.def,
+		Mdef:  b.mdef,
+		Atk:   b.atk,
+		Matk:  b.matk,
+		MaxHp: b.maxHp,
+		Hp:    b.hp,
+		MaxMp: b.maxMp,
+		Mp:    b.mp,
+	}
+}
+
+type ChatMessageClient struct {
+	ChatType string `json:"chatType"`
+	Talker   string `json:"talker"`
+	Content  string `json:"content"`
+}
+
+func (b *Bio) TalkScene(content string) {
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleChatMessage",
+		Params: []interface{}{
+			&ChatMessageClient{
+				"Scene",
+				b.name,
+				content,
+			},
+		},
+	}
+	b.scene.DispatchClientCall(b, clientCall)
+}
+
+func (b *Bio) ViewAOIUpdate(delta float32) {
+	b.viewAOIState.body.SetPosition(b.body.Position())
+}
+
+func (v *ViewAOIState) CollisionEnter(arbiter *chipmunk.Arbiter) bool {
+	sb, ok := arbiter.BodyA.UserData.(SceneObjecter)
+	if ok {
+		v.inAreaSceneObjecters[sb] = struct{}{}
+		if v.OnSceneObjectEnter != nil {
+			v.OnSceneObjectEnter(sb)
+		}
+	}
+	sb, ok = arbiter.BodyB.UserData.(SceneObjecter)
+	if ok {
+		v.inAreaSceneObjecters[sb] = struct{}{}
+		if v.OnSceneObjectEnter != nil {
+			v.OnSceneObjectEnter(sb)
+		}
+	}
+	return true
+}
+
+func (v *ViewAOIState) CollisionExit(arbiter *chipmunk.Arbiter) {
+	sb, ok := arbiter.BodyA.UserData.(SceneObjecter)
+	if ok {
+		delete(v.inAreaSceneObjecters, sb)
+		if v.OnSceneObjectLeave != nil {
+			v.OnSceneObjectLeave(sb)
+		}
+	}
+	sb, ok = arbiter.BodyB.UserData.(SceneObjecter)
+	if ok {
+		delete(v.inAreaSceneObjecters, sb)
+		if v.OnSceneObjectLeave != nil {
+			v.OnSceneObjectLeave(sb)
 		}
 	}
 }
 
-func (b *BioBase) ShutDownViewAOI() {
-	b.DoJob(func() {
-		if b.viewAOI.running {
-			b.viewAOI.quit <- struct{}{}
-		}
-	})
+func (v *ViewAOIState) CollisionPreSolve(arbiter *chipmunk.Arbiter) bool {
+	return true
 }
+
+func (v *ViewAOIState) CollisionPostSolve(arbiter *chipmunk.Arbiter) {}
