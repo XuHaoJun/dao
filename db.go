@@ -40,6 +40,7 @@ func (d *DaoDB) ImportDefaultJsonDB() error {
 	if err != nil {
 		return err
 	}
+	d.items.EnsureIndexKey("item.baseId")
 	return nil
 }
 

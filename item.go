@@ -13,9 +13,15 @@ type Itemer interface {
 	SetAgeisName(string)
 	IconViewId() int
 	SetIconViewId(int)
-	DumpDB() *ItemDumpDB
+	// DumpDB() *ItemDumpDB
 	Owner() Bioer
 	SetOwner(Bioer)
+	BaseId() int
+	SellPrice() int
+	SetSellPrice(price int)
+	BuyPrice() int
+	ItemTypeByBaseId() string
+	Client() interface{}
 }
 
 type Item struct {
@@ -28,6 +34,8 @@ type Item struct {
 	owner      Bioer
 	body       *chipmunk.Body
 	bodyViewId int
+	buyPrice   int
+	sellPrice  int
 }
 
 type ItemDumpDB struct {
@@ -35,6 +43,8 @@ type ItemDumpDB struct {
 	AgeisName  string `bson:"ageisName"`
 	IconViewId int    `bson:"iconViewid"`
 	BaseId     int    `bson:"baseId"`
+	BuyPrice   int    `bson:"buyPrice"`
+	SellPrice  int    `bson:"sellPrice"`
 }
 
 func (i *Item) DumpDB() *ItemDumpDB {
@@ -43,7 +53,13 @@ func (i *Item) DumpDB() *ItemDumpDB {
 		AgeisName:  i.ageisName,
 		IconViewId: i.iconViewId,
 		BaseId:     i.baseId,
+		BuyPrice:   i.buyPrice,
+		SellPrice:  i.sellPrice,
 	}
+}
+
+func (i *Item) Client() interface{} {
+	return i.ItemClient()
 }
 
 func (idump *ItemDumpDB) Load() *Item {
@@ -52,26 +68,34 @@ func (idump *ItemDumpDB) Load() *Item {
 	item.ageisName = idump.AgeisName
 	item.iconViewId = idump.IconViewId
 	item.baseId = idump.BaseId
+	item.buyPrice = idump.BuyPrice
+	item.sellPrice = idump.SellPrice
 	return item
 }
 
 type ItemClient struct {
 	Id         int           `json:"id"`
+	BaseId     int           `json:"baseId"`
 	Name       string        `json:"name"`
 	AgeisName  string        `json:"ageisName"`
 	IconViewId int           `json:"iconViewId"`
 	CpBody     *CpBodyClient `json:"cpBody"`
 	BodyViewId int           `json:"bodyViewId"`
+	BuyPrice   int           `json:"buyPrice"`
+	SellPrice  int           `json:"sellPrice"`
 }
 
 func (i *Item) ItemClient() *ItemClient {
 	return &ItemClient{
 		Id:         i.id,
+		BaseId:     i.baseId,
 		Name:       i.name,
 		AgeisName:  i.ageisName,
 		IconViewId: i.iconViewId,
 		CpBody:     ToCpBodyClient(i.body),
 		BodyViewId: i.bodyViewId,
+		BuyPrice:   i.buyPrice,
+		SellPrice:  i.sellPrice,
 	}
 }
 
@@ -149,6 +173,18 @@ func (i *Item) Body() *chipmunk.Body {
 	return i.body
 }
 
+func (i *Item) BuyPrice() int {
+	return i.buyPrice
+}
+
+func (i *Item) SetSellPrice(price int) {
+	i.sellPrice = price
+}
+
+func (i *Item) SellPrice() int {
+	return i.sellPrice
+}
+
 func (i *Item) AfterUpdate(delta float32) {
 }
 
@@ -159,6 +195,26 @@ func (i *Item) OnBeAddedToScene(s *Scene) {
 }
 
 func (i *Item) OnBeRemovedToScene(s *Scene) {
+}
+
+func ItemTypeByBaseId(baseId int) string {
+	var iType string
+	if baseId >= 1 && baseId <= 5000 {
+		iType = "equipment"
+	} else if baseId >= 5001 && baseId <= 10000 {
+		iType = "useSelfItem"
+	} else {
+		iType = "etcItem"
+	}
+	return iType
+}
+
+func (i *Item) ItemTypeByBaseId() string {
+	return ItemTypeByBaseId(i.baseId)
+}
+
+func (i *Item) BaseId() int {
+	return i.baseId
 }
 
 type EquipmentClient struct {
@@ -183,6 +239,10 @@ type Equipment struct {
 	etype       int
 	equipViewId int
 	equipLimit  *EquipLimit
+}
+
+func (e *Equipment) Client() interface{} {
+	return e.EquipmentClient()
 }
 
 func NewEquipment() *Equipment {
@@ -532,6 +592,21 @@ type EtcItem struct {
 	maxStackCount int
 }
 
+func (e *EtcItem) StackCount() int {
+	return e.stackCount
+}
+
+func (e *EtcItem) Client() interface{} {
+	return e.EtcItemClient()
+}
+
+func NewEtcItem() *EtcItem {
+	return &EtcItem{
+		Item:          NewItem(),
+		maxStackCount: 1024,
+	}
+}
+
 type EtcItemDumpDB struct {
 	Item          *ItemDumpDB `bson:"item"`
 	StackCount    int         `bson:"stackCount"`
@@ -547,7 +622,7 @@ type EtcItemClient struct {
 func (e *EtcItem) EtcItemClient() *EtcItemClient {
 	return &EtcItemClient{
 		Item:          e.Item.ItemClient(),
-		StackCount:    e.stackCount,
+		StackCount:    e.stackCount + 1,
 		MaxStackCount: e.maxStackCount,
 	}
 }
@@ -568,10 +643,35 @@ func (e *EtcItemDumpDB) Load() *EtcItem {
 	}
 }
 
+type UseSelfItemer interface {
+	Itemer
+	OnUseFunc() func(b Bioer)
+}
+
+func (u *UseSelfItem) OnUseFunc() func(Bioer) {
+	return u.onUse
+}
+
 type UseSelfItem struct {
 	*Item
+	onUse         func(b Bioer)
 	stackCount    int
 	maxStackCount int
+}
+
+func (u *UseSelfItem) StackCount() int {
+	return u.stackCount
+}
+
+func (u *UseSelfItem) Client() interface{} {
+	return u.UseSelfItemClient()
+}
+
+func NewUseSelfItem() *UseSelfItem {
+	return &UseSelfItem{
+		Item:          NewItem(),
+		maxStackCount: 1024,
+	}
 }
 
 type UseSelfItemDumpDB struct {
@@ -589,7 +689,7 @@ type UseSelfItemClient struct {
 func (u *UseSelfItem) UseSelfItemClient() *UseSelfItemClient {
 	return &UseSelfItemClient{
 		Item:          u.Item.ItemClient(),
-		StackCount:    u.stackCount,
+		StackCount:    u.stackCount + 1,
 		MaxStackCount: u.maxStackCount,
 	}
 }

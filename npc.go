@@ -1,10 +1,34 @@
 package dao
 
+type Npcer interface {
+	Bioer
+	FirstBeTalked(b Bioer) bool
+	SelectOption(optIndex int, b Bioer)
+	NpcClientBasic() *NpcClientBasic
+	FirstNpcTalkClient() *NpcTalkClient
+	NpcTalk() *NpcTalk
+	Bioer() Bioer
+	Shoper() Shoper
+}
+
 type Npc struct {
 	*Bio
 	baseId          int
 	talk            *NpcTalk
-	OnFirstBeTalked func(b Bioer)
+	OnFirstBeTalked func(curNpc Npcer, b Bioer)
+	shop            *Shop
+}
+
+type Shoper interface {
+	Shop() *Shop
+}
+
+func (n *Npc) Shop() *Shop {
+	return n.shop
+}
+
+func (n *Npc) Shoper() Shoper {
+	return n
 }
 
 type NpcTalk struct {
@@ -25,6 +49,13 @@ func (nt *NpcTalk) NpcTalkClient() *NpcTalkClient {
 	return ntClient
 }
 
+func (n *Npc) FirstNpcTalkClient() *NpcTalkClient {
+	if n.talk == nil {
+		return nil
+	}
+	return n.talk.NpcTalkClient()
+}
+
 type NpcTalkClient struct {
 	Title   string             `json:"title"`
 	Content string             `json:"content"`
@@ -33,7 +64,7 @@ type NpcTalkClient struct {
 
 type NpcOption struct {
 	name        string
-	onSelect    func(b Bioer)
+	onSelect    func(npc Npcer, nextNpcTalk *NpcTalk, b Bioer)
 	nextNpcTalk *NpcTalk
 }
 
@@ -47,13 +78,8 @@ type NpcOptionClient struct {
 	Name string `json:"name"`
 }
 
-type Npcer interface {
-	Bioer
-	FirstBeTalked(b Bioer) bool
-	SelectOption(optIndex int, b Bioer)
-	NpcClientBasic() *NpcClientBasic
-	NpcTalkClient() *NpcTalkClient
-	Bioer() Bioer
+func (n *Npc) NpcTalk() *NpcTalk {
+	return n.talk
 }
 
 type TalkingNpcInfo struct {
@@ -107,7 +133,7 @@ func (n *Npc) FirstBeTalked(b Bioer) bool {
 		return false
 	}
 	if n.OnFirstBeTalked != nil {
-		n.OnFirstBeTalked(b)
+		n.OnFirstBeTalked(n.Npcer(), b)
 	}
 	talkingNpcInfo := b.TalkingNpcInfo()
 	talkingNpcInfo.target = n.Npcer()
@@ -119,7 +145,30 @@ func (n *Npc) NpcTalkClient() *NpcTalkClient {
 }
 
 func (n *Npc) SelectOption(optIndex int, b Bioer) {
-	n.talk.options[optIndex].onSelect(b)
+	talkingNpcInfo := b.TalkingNpcInfo()
+	optDepth := len(talkingNpcInfo.options)
+	optCurDepth := 0
+	nextNpcTalk := n.talk
+	for optDepth < optCurDepth && nextNpcTalk != nil {
+		curOptIndex := talkingNpcInfo.options[optCurDepth]
+		nextNpcTalk = nextNpcTalk.options[curOptIndex].nextNpcTalk
+		optCurDepth += 1
+	}
+	if nextNpcTalk == nil {
+		return
+	}
+	if optIndex >= len(nextNpcTalk.options) {
+		return
+	}
+	targetNpcTalk := nextNpcTalk
+	onSelect := targetNpcTalk.options[optIndex].onSelect
+	if onSelect != nil {
+		logger := n.world.logger
+		logger.Println(targetNpcTalk)
+		onSelect(n.Npcer(),
+			targetNpcTalk.options[optIndex].nextNpcTalk,
+			b)
+	}
 }
 
 func (n *Npc) OnBeRemovedToScene(s *Scene) {

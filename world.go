@@ -2,6 +2,7 @@ package dao
 
 import (
 	"encoding/json"
+	"errors"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"log"
@@ -73,14 +74,17 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		SceneObjecterChangeScene: make(chan *ChangeScene, 256),
 		ParseClientCall:          make(chan *WorldParseClientCall, 10240),
 		//
-		delta:    1.0 / 20.0,
-		timeStep: (1.0 * time.Second / 20.0),
+		delta:    1.0 / 15.0,
+		timeStep: (1.0 * time.Second / 15.0),
 		//
 		Quit: make(chan struct{}),
 	}
 	baseScene := NewWallScene(w, "daoCity", 2000, 2000)
 	senderNpc := NewNpcByBaseId(w, 1)
 	baseScene.Add(senderNpc.SceneObjecter())
+	jackNpc := NewNpcByBaseId(w, 2)
+	jackNpc.SetPosition(300, 100)
+	baseScene.Add(jackNpc.SceneObjecter())
 	w.scenes[baseScene.name] = baseScene
 	return w, nil
 }
@@ -302,4 +306,73 @@ func (w *World) NewEquipmentByBaseId(id int) (*Equipment, error) {
 		eq.iconViewId = eq.baseId
 	}
 	return eq, nil
+}
+
+// func (w *World) findItemByBaseId(iType string, id int, iDump interface{}) (err error) {
+// 	queryItem := bson.M{iType: bson.M{"$elemMatch": bson.M{"item.baseId": id}}}
+// 	switch iDumpDB := iDump.(type) {
+// 	case *EquipmentDumpDB:
+// 		err = w.db.items.Find(queryItem).One(iDumpDB)
+// 	case *UseSelfItemDumpDB:
+// 		err = w.db.items.Find(queryItem).One(iDumpDB)
+// 	case *EtcItemDumpDB:
+// 		err = w.db.items.Find(queryItem).One(iDumpDB)
+// 	}
+// 	if err != nil {
+// 		return err
+// 	}
+// 	return nil
+// }
+
+func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {
+	if id <= 0 {
+		return nil, errors.New("out range")
+	}
+	var iType string
+	if id >= 1 && id <= 5000 {
+		iType = "equipment"
+	} else if id >= 5001 && id <= 10000 {
+		iType = "useSelfItem"
+	} else {
+		iType = "etcItem"
+	}
+	w.logger.Println(iType)
+	eqDump := NewEquipment().DumpDB()
+	useDump := NewUseSelfItem().DumpDB()
+	etcDump := NewEtcItem().DumpDB()
+	queryItem := bson.M{"item.baseId": id}
+	switch iType {
+	case "equipment":
+		err = w.db.items.Find(queryItem).One(eqDump)
+	case "useSelfItem":
+		err = w.db.items.Find(queryItem).One(useDump)
+	case "etcItem":
+		err = w.db.items.Find(queryItem).One(etcDump)
+	}
+	w.logger.Println(err)
+	if err == nil {
+	} else if err != nil && err != mgo.ErrNotFound {
+		return
+	}
+	if err == mgo.ErrNotFound {
+		return
+	}
+	switch iType {
+	case "equipment":
+		item = eqDump.Load()
+	case "useSelfItem":
+		item = useDump.Load()
+	case "etcItem":
+		item = etcDump.Load()
+	}
+	if item.IconViewId() == 0 {
+		item.SetIconViewId(item.BaseId())
+	}
+	if item.BuyPrice() != 0 && item.SellPrice() == 0 {
+		item.SetSellPrice(int(float32(item.BuyPrice()) * 0.5))
+	}
+	w.logger.Println(item)
+	w.logger.Println(item.Name())
+	w.logger.Println(item.ItemTypeByBaseId())
+	return
 }

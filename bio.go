@@ -13,6 +13,7 @@ var (
 )
 
 type Bioer interface {
+	World() *World
 	Name() string
 	Id() int
 	SetId(int)
@@ -25,9 +26,12 @@ type Bioer interface {
 	BioClientBasic() *BioClientBasic
 	BioClientAttributes() *BioClientAttributes
 	SceneObjecter() SceneObjecter
+	SetPosition(float32, float32)
+	// npc
 	TalkingNpcInfo() *TalkingNpcInfo
 	SetTalkingNpcInfo(*TalkingNpcInfo)
-	SetPosition(float32, float32)
+	CancelTalkingNpc()
+	ResponseTalkingNpc(optIndex int)
 }
 
 type Bio struct {
@@ -241,7 +245,10 @@ func NewBio(w *World) *Bio {
 		wis: 1,
 		spi: 1,
 		//
-		talkingNpcInfo: &TalkingNpcInfo{},
+		talkingNpcInfo: &TalkingNpcInfo{
+			target:  nil,
+			options: make([]int, 0),
+		},
 	}
 	viewAOIState := bio.viewAOIState
 	viewAOIState.OnSceneObjectEnter = bio.OnSceneObjectEnterViewAOIFunc()
@@ -278,6 +285,14 @@ func (b *Bio) CancelTalkingNpc() {
 			options: make([]int, 0),
 		}
 	}
+}
+
+func (b *Bio) ResponseTalkingNpc(optIndex int) {
+	if optIndex < 0 || b.talkingNpcInfo.target == nil {
+		return
+	}
+	npc := b.talkingNpcInfo.target
+	npc.SelectOption(optIndex, b.Bioer())
 }
 
 func (b *Bio) SetPosition(x float32, y float32) {
@@ -440,6 +455,10 @@ func (b *Bio) AfterUpdate(delta float32) {
 
 func (b *Bio) Name() string {
 	return b.name
+}
+
+func (b *Bio) World() *World {
+	return b.world
 }
 
 func (b *Bio) Id() int {

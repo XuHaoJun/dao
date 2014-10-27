@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"reflect"
 	"strconv"
 
 	"github.com/xuhaojun/chipmunk"
@@ -18,8 +19,14 @@ type CharClientCall interface {
 	UnequipBySlot(slot int)
 	// NormalAttackByMid(mid int)
 	// PickItemById(id int)
+	// npc
 	TalkNpcById(nid int)
 	CancelTalkingNpc()
+	ResponseTalkingNpc(optIndex int)
+	//shop
+	BuyItemFromOpeningShop(sellIndex int)
+	SellItemToOpeningShop(baseId int, slotIndex int)
+	CancelOpeningShop()
 }
 
 type Charer interface {
@@ -33,8 +40,10 @@ type Charer interface {
 	CharClientCall() CharClientCall
 	CharClient() *CharClient
 	CharClientBasic() *CharClientBasic
+	GetItemByBaseId(baseId int)
 	Bioer() Bioer
-	ResponseTalkingNpc(optIndex int)
+	OpenShop(s Shoper)
+	CancelOpeningShop()
 }
 
 type Char struct {
@@ -58,6 +67,8 @@ type Char struct {
 	//
 	pickRadius float32
 	pickRange  *chipmunk.Body
+	//
+	openingShop *Shop
 }
 
 type CharClient struct {
@@ -68,6 +79,7 @@ type CharClient struct {
 	LastY         float32           `json:"lastY"`
 	Items         *ItemsClient      `json:"items"`
 	UsingEquips   UsingEquipsClient `json:"usingEquips"`
+	Dzeny         int               `json:"dzeny"`
 }
 
 type CharClientBasic struct {
@@ -177,6 +189,7 @@ func NewChar(name string, acc *Account) *Char {
 		lastScene:   &SceneInfo{"daoCity", 0, 0},
 		saveScene:   &SceneInfo{"daoCity", 0, 0},
 	}
+	c.dzeny = 10000
 	c.name = name
 	c.level = 1
 	c.baseStr = 1
@@ -190,9 +203,9 @@ func NewChar(name string, acc *Account) *Char {
 	c.CalcAttributes()
 	c.hp = c.maxHp
 	c.mp = c.maxMp
-	freeEq, err := c.world.NewEquipmentByBaseId(1)
+	freeEq, err := c.world.NewItemByBaseId(1)
 	if err == nil {
-		c.items.equipment[0] = freeEq
+		c.items.equipment[0] = freeEq.(*Equipment)
 	}
 	c.pickRadius = 42.0
 	c.pickRange = chipmunk.NewBody(1, 1)
@@ -242,6 +255,7 @@ func (c *Char) CharClient() *CharClient {
 		LastY:         c.lastScene.Y,
 		Items:         c.items.ItemsClient(),
 		UsingEquips:   c.usingEquips.UsingEquipsClient(),
+		Dzeny:         c.dzeny,
 	}
 }
 
@@ -483,7 +497,7 @@ func (c *Char) UnequipBySlot(slot int) {
 		return
 	}
 	c.CalcAttributes()
-	// update client
+	// client update
 	clientCalls := make([]*ClientCall, 3)
 	clientCalls[0] = &ClientCall{
 		Receiver: "char",
@@ -512,6 +526,9 @@ func (c *Char) UnequipBySlot(slot int) {
 	c.sock.SendMsg(clientCalls)
 }
 
+func (c *Char) UpdateClientItems() {
+}
+
 func (c *Char) TalkNpcById(nid int) {
 	if nid <= 0 || c.scene == nil {
 		return
@@ -524,13 +541,27 @@ func (c *Char) TalkNpcById(nid int) {
 	if isFirsted == false {
 		return
 	}
+	// client update
 	clientCall := &ClientCall{
 		Receiver: "char",
 		Method:   "handleNpcTalkBox",
-		Params:   []interface{}{npc.NpcTalkClient()},
+		Params:   []interface{}{npc.FirstNpcTalkClient()},
 	}
 	c.SendMsg(clientCall)
 }
+
+// FIXME
+// add npc selectoption method
+// func (c *Char) ResponseTalkingNpc(optIndex int) {
+// c.Bio.ResponseTalkingNpc(optIndex)
+// if optIndex < 0 || c.talkingNpcInfo.target == nil {
+// 	return
+// }
+// npc := c.talkingNpcInfo.target
+// npc.SelectOption(optIndex, c.Bioer())
+// talkingOpts := c.talkingNpcInfo.options
+// c.talkingNpcInfo.options = append(talkingOpts, optIndex)
+// }
 
 func (c *Char) ResponseTalkingNpc(optIndex int) {
 	if optIndex < 0 || c.talkingNpcInfo.target == nil {
@@ -538,15 +569,206 @@ func (c *Char) ResponseTalkingNpc(optIndex int) {
 	}
 	npc := c.talkingNpcInfo.target
 	npc.SelectOption(optIndex, c.Bioer())
-	talkingOpts := c.talkingNpcInfo.options
-	c.talkingNpcInfo.options = append(talkingOpts, optIndex)
 }
 
 func (c *Char) CancelTalkingNpc() {
 	c.Bio.CancelTalkingNpc()
+	// client update
 	clientCall := &ClientCall{
 		Receiver: "char",
 		Method:   "handleNpcTalkBox",
+		Params:   []interface{}{nil},
+	}
+	c.SendMsg(clientCall)
+}
+
+// TODO
+// add error
+func (c *Char) GetItem(item Itemer) int {
+	switch item.ItemTypeByBaseId() {
+	case "equipment":
+		for i, eq := range c.items.equipment {
+			if eq == nil {
+				c.items.equipment[i] = item.(*Equipment)
+				return i
+			}
+		}
+	case "useSelfItem":
+		for i, us := range c.items.useSelfItem {
+			if us != nil && us.baseId == item.BaseId() &&
+				us.stackCount < us.maxStackCount {
+				us.stackCount += 1
+				return i
+			} else if us == nil {
+				c.items.useSelfItem[i] = item.(*UseSelfItem)
+				return i
+			}
+		}
+	case "etcItem":
+		for i, etc := range c.items.etcItem {
+			if etc != nil && etc.baseId == item.BaseId() &&
+				etc.stackCount < etc.maxStackCount {
+				etc.stackCount += 1
+				return i
+			} else if etc == nil {
+				c.items.etcItem[i] = item.(*EtcItem)
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func (c *Char) GetItemByBaseId(baseId int) {
+	item, err := c.world.NewItemByBaseId(baseId)
+	if err != nil {
+		return
+	}
+	putedSlot := c.GetItem(item)
+	itemsUpdate := make(map[string]interface{})
+	iType := item.ItemTypeByBaseId()
+	itemsUpdate[strconv.Itoa(putedSlot)] = item.Client()
+	// client update
+	itemsClientUpdate := map[string]interface{}{
+		iType: itemsUpdate,
+	}
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateItems",
+		Params:   []interface{}{itemsClientUpdate},
+	}
+	c.SendMsg(clientCall)
+}
+
+func (c *Char) OpenShop(s Shoper) {
+	if c.openingShop != nil {
+		return
+	}
+	shop := s.Shop()
+	c.openingShop = shop
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleShop",
+		Params:   []interface{}{shop.ShopClient()},
+	}
+	c.SendMsg(clientCall)
+}
+
+func (c *Char) BuyItemFromOpeningShop(i int) {
+	shop := c.openingShop
+	if i < 0 || shop == nil {
+		return
+	}
+	item := shop.NewItemBySellIndex(i)
+	if c.dzeny < item.BuyPrice() || item == nil {
+		return
+	}
+	c.dzeny -= item.BuyPrice()
+	putedSlot := c.GetItem(item)
+	// client update
+	itemsUpdate := make(map[string]interface{})
+	iType := item.ItemTypeByBaseId()
+	itemsUpdate[strconv.Itoa(putedSlot)] = item.Client()
+	itemsClientUpdate := map[string]interface{}{
+		iType: itemsUpdate,
+	}
+	clientCalls := make([]*ClientCall, 2)
+	clientCalls[0] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateItems",
+		Params:   []interface{}{itemsClientUpdate},
+	}
+	clientCalls[1] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params: []interface{}{
+			map[string]int{"dzeny": c.dzeny},
+		},
+	}
+	c.SendMsg(clientCalls)
+}
+
+func (c *Char) SellItemToOpeningShop(baseId int, slotIndex int) {
+	logger := c.world.logger
+	if baseId <= 0 ||
+		slotIndex < 0 || slotIndex >= 30 ||
+		c.openingShop == nil {
+		return
+	}
+	var foundItem Itemer
+	iType := ItemTypeByBaseId(baseId)
+	switch iType {
+	case "equipment":
+		foundItem = c.items.equipment[slotIndex]
+	case "etcItem":
+		foundItem = c.items.etcItem[slotIndex]
+	case "useSelfItem":
+		foundItem = c.items.useSelfItem[slotIndex]
+	}
+	if reflect.ValueOf(foundItem).IsNil() {
+		logger.Println("detect foundItem is nil")
+		return
+	}
+	logger.Println("foundItem: ", foundItem)
+	c.dzeny += foundItem.SellPrice()
+	var finalItem Itemer
+	switch iType {
+	case "equipment":
+		c.items.equipment[slotIndex] = nil
+		finalItem = nil
+	case "useSelfItem":
+		us := c.items.useSelfItem[slotIndex]
+		us.stackCount -= 1
+		if us.stackCount < 0 {
+			c.items.useSelfItem[slotIndex] = nil
+			finalItem = nil
+		} else {
+			finalItem = us
+		}
+	case "etcItem":
+		etc := c.items.etcItem[slotIndex]
+		etc.stackCount -= 1
+		if etc.stackCount < 0 {
+			c.items.etcItem[slotIndex] = nil
+			finalItem = nil
+		} else {
+			finalItem = etc
+		}
+	}
+	// update client
+	itemsUpdate := make(map[string]interface{})
+	if finalItem != nil {
+		itemsUpdate[strconv.Itoa(slotIndex)] = finalItem.Client()
+	} else {
+		itemsUpdate[strconv.Itoa(slotIndex)] = nil
+	}
+	itemsClientUpdate := map[string]interface{}{
+		iType: itemsUpdate,
+	}
+	clientCalls := make([]*ClientCall, 2)
+	clientCalls[0] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateItems",
+		Params:   []interface{}{itemsClientUpdate},
+	}
+	clientCalls[1] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params: []interface{}{
+			map[string]int{"dzeny": c.dzeny},
+		},
+	}
+	c.SendMsg(clientCalls)
+}
+
+func (c *Char) CancelOpeningShop() {
+	if c.openingShop == nil {
+		return
+	}
+	c.openingShop = nil
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleShop",
 		Params:   []interface{}{nil},
 	}
 	c.SendMsg(clientCall)
