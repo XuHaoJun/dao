@@ -123,8 +123,14 @@ type Server struct {
 	wsHub *WsHub
 }
 
-func NewServer() *Server {
-	w, err := NewWorld("develop", "127.0.0.1", "dao")
+func NewServer(needReadConfig bool) *Server {
+	var w *World
+	var err error
+	if needReadConfig {
+		w, err = NewWorldByConfig(NewDaoConfigsByConfigFiles())
+	} else {
+		w, err = NewWorldByConfig(NewDefaultDaoConfigs())
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -138,6 +144,7 @@ func NewServer() *Server {
 		world: w,
 		wsHub: hub,
 	}
+	w.server = ds
 	hub.server = ds
 	return ds
 }
@@ -149,7 +156,6 @@ func (s *Server) HandleSignal() {
 		select {
 		case <-c:
 			s.ShutDown()
-			os.Exit(0)
 			break
 		}
 	}
@@ -160,6 +166,7 @@ func (s *Server) ShutDown() {
 	s.world.Quit <- struct{}{}
 	<-s.world.Quit
 	<-s.wsHub.Quit
+	os.Exit(0)
 }
 
 func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
@@ -222,9 +229,9 @@ func (s *Server) testPage() string {
 }
 
 func (s *Server) Run() {
-	go s.world.Run()
+	go s.RunHTTP()
 	go s.HandleSignal()
-	s.RunHTTP()
+	s.world.Run()
 	// may be handle pure tcp connection in the future
 	// s.RunTCP()
 }

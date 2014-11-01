@@ -700,6 +700,39 @@ func (b *Bio) TalkScene(content string) {
 	b.scene.DispatchClientCall(b, clientCall)
 }
 
+func (b *Bio) ItemQuickHeal(n int, effectId int) bool {
+	if b.IsDied() {
+		return false
+	}
+	b.hp += n
+	if b.hp > b.maxHp {
+		b.hp = b.maxHp
+	}
+	b.world.logger.Println("ItemQuickHeal")
+	clientCall1 := &ClientCall{
+		Receiver: "bio",
+		Method:   "handleItemQuickHeal",
+		Params: []interface{}{
+			b.id,
+			n,
+			effectId,
+		},
+	}
+	clientCall2 := &ClientCall{
+		Receiver: "bio",
+		Method:   "handleUpdateBioConfig",
+		Params: []interface{}{
+			b.id,
+			map[string]int{
+				"hp": b.hp,
+			},
+		},
+	}
+	b.clientCallPublisher.PublishClientCall(clientCall1)
+	b.clientCallPublisher.PublishClientCall(clientCall2)
+	return true
+}
+
 func (b *Bio) ViewAOIUpdate(delta float32) {
 	b.viewAOIState.body.SetPosition(b.body.Position())
 }

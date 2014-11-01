@@ -3,15 +3,17 @@ package dao
 import (
 	"gopkg.in/mgo.v2"
 	"os/exec"
+	"sync"
 )
 
 type DaoDB struct {
-	url      string
-	dbName   string
-	session  *mgo.Session
-	db       *mgo.Database
-	accounts *mgo.Collection
-	items    *mgo.Collection
+	url         string
+	dbName      string
+	session     *mgo.Session
+	db          *mgo.Database
+	accounts    *mgo.Collection
+	items       *mgo.Collection
+	updateMutex *sync.Mutex
 }
 
 func NewDaoDB(mgourl string, dbname string) (*DaoDB, error) {
@@ -21,14 +23,21 @@ func NewDaoDB(mgourl string, dbname string) (*DaoDB, error) {
 	}
 	db := mongoSession.DB(dbname)
 	daoDB := &DaoDB{
-		url:      mgourl,
-		dbName:   dbname,
-		session:  mongoSession,
-		db:       db,
-		accounts: db.C("accounts"),
-		items:    db.C("items"),
+		url:         mgourl,
+		dbName:      dbname,
+		session:     mongoSession,
+		db:          db,
+		accounts:    db.C("accounts"),
+		items:       db.C("items"),
+		updateMutex: &sync.Mutex{},
 	}
 	return daoDB, nil
+}
+
+func (d *DaoDB) UpdateAccountIndex() {
+	d.updateMutex.Lock()
+	d.accounts.EnsureIndexKey("username")
+	d.updateMutex.Unlock()
 }
 
 func (d *DaoDB) ImportDefaultJsonDB() error {
@@ -48,12 +57,13 @@ func (d *DaoDB) CloneSession() *DaoDB {
 	session := d.session.Clone()
 	db := session.DB(d.dbName)
 	d2 := &DaoDB{
-		url:      d.url,
-		dbName:   d.dbName,
-		session:  session,
-		db:       db,
-		accounts: db.C("accounts"),
-		items:    db.C("items"),
+		url:         d.url,
+		dbName:      d.dbName,
+		session:     session,
+		db:          db,
+		accounts:    db.C("accounts"),
+		items:       db.C("items"),
+		updateMutex: d.updateMutex,
 	}
 	return d2
 }

@@ -10,6 +10,7 @@ type Account struct {
 	username  string
 	password  string
 	world     *World
+	maxChars  int
 	chars     []*Char
 	usingChar *Char
 	isOnline  bool
@@ -26,12 +27,14 @@ type AccountDumpDB struct {
 	Id       bson.ObjectId `bson:"_id"`
 	Username string        `bson:"username"`
 	Password string        `bson:"password"`
+	MaxChars int           `bson:"maxChars"`
 	Chars    []*CharDumpDB `bson:"chars"`
 }
 
 func (aDump *AccountDumpDB) Load(w *World) *Account {
 	acc := NewAccount(aDump.Username, aDump.Password, w)
 	acc.bsonId = aDump.Id
+	acc.maxChars = aDump.MaxChars
 	acc.chars = make([]*Char, len(aDump.Chars))
 	for i, charDump := range aDump.Chars {
 		acc.chars[i] = charDump.Load(acc)
@@ -40,11 +43,13 @@ func (aDump *AccountDumpDB) Load(w *World) *Account {
 }
 
 func NewAccount(username string, password string, w *World) *Account {
+	maxChars := w.DaoConfigs().AccountConfigs.MaxChars
 	a := &Account{
 		bsonId:   bson.NewObjectId(),
 		username: username,
 		password: password,
 		world:    w,
+		maxChars: maxChars,
 		chars:    []*Char{},
 		isOnline: false,
 	}
@@ -71,6 +76,7 @@ func (a *Account) DumpDB() *AccountDumpDB {
 		Id:       a.bsonId,
 		Username: a.username,
 		Password: a.password,
+		MaxChars: a.maxChars,
 		Chars:    chars,
 	}
 }
@@ -154,7 +160,7 @@ func (a *Account) CreateChar(name string) {
 	if a.isOnline == false {
 		return
 	}
-	if len(a.chars) >= a.world.Configs().maxChars {
+	if len(a.chars) >= a.maxChars {
 		clientCall := &ClientCall{
 			Receiver: "account",
 			Method:   "handleErrorCreateChar",
@@ -212,6 +218,7 @@ func (a *Account) Logout() {
 		}
 		c.account.world.logger.Println("Char:", c.name, "logouted.")
 	}
+	a.world.RemoveAccount(a)
 	a.sock.Close()
 	a.world.logger.Println("Account:", a.username, "logouted.")
 }

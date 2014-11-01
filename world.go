@@ -14,10 +14,11 @@ import (
 
 type World struct {
 	name     string
+	server   *Server
 	accounts map[string]*Account
 	scenes   map[string]*Scene
 	db       *DaoDB
-	configs  *WorldConfigs
+	configs  *DaoConfigs
 	logger   *log.Logger
 	//
 	// SaveAccount     chan *Account
@@ -32,11 +33,17 @@ type World struct {
 	//
 	ParseClientCall chan *WorldParseClientCall
 	//
+	interpreter     *WorldInterpreter
+	InterpreterEval chan string
+	//
 	delta    float32
 	timeStep time.Duration
 	//
 	job  chan func()
 	Quit chan struct{}
+	//
+	util  *Util
+	cache *Cache
 }
 
 type ChangeScene struct {
@@ -44,14 +51,16 @@ type ChangeScene struct {
 	Scene         *Scene
 }
 
-type WorldConfigs struct {
-	maxChars     int
-	maxCharItems int
+type WorldClientCall interface {
+	RegisterAccount(username string, password string, sock *wsConn)
+	LoginAccount(username string, password string, sock *wsConn)
 }
 
-type WorldClientCall interface {
-	RegisterAccount(username string, password string)
-	LoginAccount(username string, password string, sock *wsConn)
+func NewWorldByConfig(dc *DaoConfigs) (w *World, err error) {
+	w, err = NewWorld(dc.WorldConfigs.Name,
+		dc.MongoDBConfigs.URL, dc.MongoDBConfigs.DBName)
+	w.configs = dc
+	return
 }
 
 func NewWorld(name string, mgourl string, dbname string) (*World, error) {
@@ -68,17 +77,22 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		accounts:                 make(map[string]*Account),
 		scenes:                   make(map[string]*Scene),
 		db:                       db,
-		configs:                  &WorldConfigs{5, 30},
+		configs:                  NewDefaultDaoConfigs(),
 		logger:                   log.New(os.Stdout, "[dao-"+name+"] ", 0),
 		LogoutAccount:            make(chan *Account, 8),
 		SceneObjecterChangeScene: make(chan *ChangeScene, 256),
 		ParseClientCall:          make(chan *WorldParseClientCall, 10240),
+		InterpreterEval:          make(chan string, 256),
 		//
 		delta:    1.0 / 15.0,
 		timeStep: (1.0 * time.Second / 15.0),
 		//
 		Quit: make(chan struct{}),
+		//
+		util:  &Util{},
+		cache: NewCache(),
 	}
+	w.interpreter = NewWorldInterpreter(w)
 	baseScene := NewWallScene(w, "daoCity", 2000, 2000)
 	senderNpc := NewNpcByBaseId(w, 1)
 	baseScene.Add(senderNpc.SceneObjecter())
@@ -86,7 +100,52 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 	jackNpc.SetPosition(300, 100)
 	baseScene.Add(jackNpc.SceneObjecter())
 	w.scenes[baseScene.name] = baseScene
+	go w.db.UpdateAccountIndex()
 	return w, nil
+}
+
+func (w *World) Name() string {
+	return w.name
+}
+
+func (w *World) ReloadJsonDB() (err error) {
+	w.logger.Println("Reloading JsonDB")
+	err = w.db.ImportDefaultJsonDB()
+	if err != nil {
+		w.logger.Println("Error ReloadJsonDB")
+		return
+	}
+	w.cache = NewCache()
+	for _, acc := range w.accounts {
+		char := acc.usingChar
+		if char == nil {
+			continue
+		}
+		char.UpdateItemsUseSelfItemFunc()
+	}
+	w.logger.Println("Reloaded JsonDB!")
+	return
+}
+
+func (w *World) ReloadDaoConfigs() (err error) {
+	w.logger.Println("Reloading DaoConfigs")
+	w.configs.ReloadConfigFiles()
+	w.logger.Println("Reloaded DaoConfigs!")
+	return
+}
+
+func (w *World) ReloadAll() {
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		w.ReloadJsonDB()
+		wg.Done()
+	}()
+	go func() {
+		w.ReloadDaoConfigs()
+		wg.Done()
+	}()
+	wg.Wait()
 }
 
 func (w *World) WorldClientCall() WorldClientCall {
@@ -96,13 +155,25 @@ func (w *World) WorldClientCall() WorldClientCall {
 func (w *World) Run() {
 	defer w.db.session.Close()
 	var wg sync.WaitGroup
+	go w.interpreter.ReadRun()
 	physicC := time.Tick(w.timeStep)
 	for {
 		select {
-		case acc := <-w.LogoutAccount:
-			w.DoLogoutAccount(acc)
+		case <-physicC:
+			for _, scene := range w.scenes {
+				wg.Add(1)
+				go func(s *Scene, dt float32) {
+					s.Update(dt)
+					wg.Done()
+				}(scene, w.delta)
+			}
+			wg.Wait()
 		case params := <-w.ParseClientCall:
 			w.DoParseClientCall(params.Msg, params.Conn)
+		case expr := <-w.InterpreterEval:
+			w.interpreter.Eval(expr)
+		case acc := <-w.LogoutAccount:
+			w.DoLogoutAccount(acc)
 		case params := <-w.SceneObjecterChangeScene:
 			sb := params.SceneObjecter
 			scene := params.Scene
@@ -115,15 +186,6 @@ func (w *World) Run() {
 				sb.Scene().Remove(sb)
 				scene.Add(sb)
 			}
-		case <-physicC:
-			for _, scene := range w.scenes {
-				wg.Add(1)
-				go func(s *Scene, dt float32) {
-					s.Update(dt)
-					wg.Done()
-				}(scene, w.delta)
-			}
-			wg.Wait()
 		case <-w.Quit:
 			for _, acc := range w.accounts {
 				acc.Logout()
@@ -136,27 +198,35 @@ func (w *World) Run() {
 
 // TODO
 // should check username and password is right format!
-func (w *World) registerAccount(username string, password string) {
+func (w *World) registerAccount(username string, password string, sock *wsConn) {
 	db := w.db.CloneSession()
 	queryAcc := bson.M{"username": username}
 	err := db.accounts.Find(queryAcc).Select(bson.M{"_id": 1}).One(&struct{}{})
 	if err != nil && err != mgo.ErrNotFound {
 		panic(err)
 	} else if err != mgo.ErrNotFound {
-		// TODO
-		// reject to register same user
-		// send some message to client
+		clientErr := []interface{}{"duplicated account!"}
+		clientCall := &ClientCall{
+			Receiver: "world",
+			Method:   "handleErrorLoginAccount",
+			Params:   clientErr,
+		}
+		sock.SendMsg(clientCall)
 	} else if err == mgo.ErrNotFound {
 		acc := NewAccount(username, password, w)
 		acc.Save()
-		w.logger.Println("Account:", acc.username, "Registered.")
+		go w.db.UpdateAccountIndex()
 		// TODO
 		// Update client screen
 	}
 }
 
-func (w *World) RegisterAccount(username string, password string) {
-	go w.registerAccount(username, password)
+func (w *World) RegisterAccount(username string, password string, sock *wsConn) {
+	go w.registerAccount(username, password, sock)
+}
+
+func (w *World) ShutDownServer() {
+	go w.server.ShutDown()
 }
 
 type WorldParseClientCall struct {
@@ -184,7 +254,8 @@ func (w *World) DoParseClientCall(msg []byte, conn *wsConn) {
 		if f.IsValid() == false {
 			return
 		}
-		if clientCall.Method == "LoginAccount" {
+		if clientCall.Method == "LoginAccount" ||
+			clientCall.Method == "RegisterAccount" {
 			clientCall.Params = append(clientCall.Params, conn)
 		}
 		in, err := clientCall.CastJSON(f)
@@ -233,11 +304,63 @@ func (w *World) RequestParseClientCall(msg []byte, conn *wsConn) {
 	w.ParseClientCall <- &WorldParseClientCall{msg, conn}
 }
 
-func (w *World) DoLogoutAccount(acc *Account) {
+func (w *World) RemoveAccount(acc *Account) bool {
 	_, ok := w.accounts[acc.username]
+	if ok {
+		delete(w.accounts, acc.username)
+	}
+	return ok
+}
+
+func (w *World) DoLogoutAccount(acc *Account) {
+	ok := w.RemoveAccount(acc)
+	if ok {
+		acc.Logout()
+	}
+}
+
+func (w *World) KickAccountByUsername(username string) {
+	acc, ok := w.accounts[username]
 	if ok {
 		acc.Logout()
 		delete(w.accounts, acc.username)
+	}
+}
+
+func (w *World) KickAllAccount() {
+	for _, acc := range w.accounts {
+		acc.Logout()
+		delete(w.accounts, acc.username)
+	}
+}
+
+func (w *World) OnlineAccountUsernames() []string {
+	names := make([]string, len(w.accounts))
+	i := 0
+	for name, _ := range w.accounts {
+		names[i] = name
+	}
+	return names
+}
+
+func (w *World) TalkWorld(name string, content string) {
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleChatMessage",
+		Params: []interface{}{
+			&ChatMessageClient{
+				"World",
+				name,
+				content,
+			},
+		},
+	}
+	for _, acc := range w.accounts {
+		if acc.UsingChar() == nil {
+			continue
+		}
+		char := acc.UsingChar()
+		char.SendMsg(clientCall)
 	}
 }
 
@@ -254,12 +377,12 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) {
 		return
 	}
 	foundAcc := &AccountDumpDB{}
-	queryAcc := bson.M{"username": username, "password": password}
+	queryAcc := bson.M{"username": username}
 	err := w.db.accounts.Find(queryAcc).One(foundAcc)
 	if err != nil && err != mgo.ErrNotFound {
 		panic(err)
 	}
-	if err == mgo.ErrNotFound {
+	if err == mgo.ErrNotFound || foundAcc.Password != password {
 		clientErr := []interface{}{"wrong username or password"}
 		clientCall := &ClientCall{
 			Receiver: "world",
@@ -289,40 +412,38 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) {
 	w.logger.Println("Account:", acc.username, "Logined.")
 }
 
-func (w *World) Configs() *WorldConfigs {
+func (w *World) DaoConfigs() *DaoConfigs {
 	return w.configs
 }
 
-func (w *World) NewEquipmentByBaseId(id int) (*Equipment, error) {
-	eqDump := NewEquipment().DumpDB()
-	// TODO
-	// add check db error
-	err := w.db.items.Find(bson.M{"item.baseId": id}).One(eqDump)
-	if err != nil {
-		return nil, err
+func (w *World) LoadUseSelfFuncByBaseId(baseId int) func(b Bioer) {
+	useFunc := w.cache.UseSelfFuncs[baseId]
+	if useFunc != nil {
+		return useFunc
 	}
-	eq := eqDump.Load()
-	if eq.iconViewId == 0 {
-		eq.iconViewId = eq.baseId
+	item, err := w.NewItemByBaseId(baseId)
+	if err != nil || item.ItemTypeByBaseId() != "useSelfItem" {
+		return nil
 	}
-	return eq, nil
+	uItem := item.(*UseSelfItem)
+	w.cache.UseSelfFuncs[baseId] = uItem.onUse
+	return uItem.onUse
 }
 
-// func (w *World) findItemByBaseId(iType string, id int, iDump interface{}) (err error) {
-// 	queryItem := bson.M{iType: bson.M{"$elemMatch": bson.M{"item.baseId": id}}}
-// 	switch iDumpDB := iDump.(type) {
-// 	case *EquipmentDumpDB:
-// 		err = w.db.items.Find(queryItem).One(iDumpDB)
-// 	case *UseSelfItemDumpDB:
-// 		err = w.db.items.Find(queryItem).One(iDumpDB)
-// 	case *EtcItemDumpDB:
-// 		err = w.db.items.Find(queryItem).One(iDumpDB)
-// 	}
-// 	if err != nil {
-// 		return err
-// 	}
-// 	return nil
-// }
+func (w *World) ParseUseSelfFuncArrays(useCalls []*UseSelfItemCall, item Itemer) func(b Bioer) {
+	return func(bio Bioer) {
+		if bio == nil ||
+			reflect.ValueOf(bio).IsNil() {
+			return
+		}
+		for _, uCall := range useCalls {
+			_, err := uCall.Eval(item, bio)
+			if err != nil {
+				w.logger.Println(err)
+			}
+		}
+	}
+}
 
 func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {
 	if id <= 0 {
@@ -361,8 +482,14 @@ func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {
 	case "equipment":
 		item = eqDump.Load()
 	case "useSelfItem":
+		config := w.DaoConfigs().ItemConfigs
+		useDump.MaxStackCount = config.UseSelfItemConfigs.MaxStackCount
 		item = useDump.Load()
+		onUse := w.ParseUseSelfFuncArrays(useDump.UseSelfFuncArrays, item)
+		item.(*UseSelfItem).onUse = onUse
 	case "etcItem":
+		config := w.DaoConfigs().ItemConfigs
+		etcDump.MaxStackCount = config.EtcItemConfigs.MaxStackCount
 		item = etcDump.Load()
 	}
 	if item.IconViewId() == 0 {

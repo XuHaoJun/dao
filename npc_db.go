@@ -36,7 +36,10 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 	case 2:
 		npc.name = "Jack"
 		npc.bodyViewId = 5000
-		npc.shop = &Shop{"Jack's Shop", []int{1}, npc.Bioer(), npc.world}
+		npc.shop = &Shop{"Jack's Shop",
+			[]int{1, 5001, 10001},
+			npc.Bioer(),
+			npc.world}
 		npcOpt0 := &NpcOption{
 			name: "Hello",
 			nextNpcTalk: &NpcTalk{
@@ -69,6 +72,7 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 					c.SendMsg(clientCall)
 					// c.GetItemByBaseId(1)
 					c.GetItemByBaseId(10001)
+					c.GetItemByBaseId(5001)
 				}
 			},
 		}

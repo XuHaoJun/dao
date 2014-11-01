@@ -1,8 +1,12 @@
 package dao
 
 import (
+	"errors"
+	"fmt"
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
+	"gopkg.in/mgo.v2/bson"
+	"reflect"
 )
 
 type Itemer interface {
@@ -592,6 +596,10 @@ type EtcItem struct {
 	maxStackCount int
 }
 
+func (e *EtcItem) Itemer() Itemer {
+	return e
+}
+
 func (e *EtcItem) StackCount() int {
 	return e.stackCount
 }
@@ -669,15 +677,180 @@ func (u *UseSelfItem) Client() interface{} {
 
 func NewUseSelfItem() *UseSelfItem {
 	return &UseSelfItem{
-		Item:          NewItem(),
-		maxStackCount: 1024,
+		Item: NewItem(),
 	}
+}
+
+type UseSelfItemCall struct {
+	Receiver string        `json:"receiver"`
+	Method   string        `json:"method"`
+	Params   []interface{} `json:"params"`
+}
+
+func (uCall *UseSelfItemCall) Eval(item Itemer, bio Bioer) ([]reflect.Value, error) {
+	f := uCall.FindFunc(item, bio)
+	if f.IsNil() {
+		return nil, errors.New("eval function not found")
+	}
+	in, err := uCall.CastParams(f, item, bio)
+	if err != nil {
+		return nil, err
+	}
+	return f.Call(in), nil
+}
+
+func (uCall *UseSelfItemCall) FindFunc(item Itemer, bio Bioer) (f reflect.Value) {
+	var receiver interface{}
+	switch uCall.Receiver {
+	case "Bio":
+		receiver = bio
+	case "Util":
+		receiver = bio.World().util
+	case "World":
+		receiver = bio.World()
+	case "Scene":
+		receiver = bio.Scene()
+	case "Item":
+		receiver = item
+	}
+	f = reflect.ValueOf(receiver).MethodByName(uCall.Method)
+	return
+}
+
+func (uCall *UseSelfItemCall) CastParams(f reflect.Value, item Itemer, bio Bioer) ([]reflect.Value, error) {
+	if f.IsValid() == false {
+		return nil, errors.New("wrong function")
+	}
+	numIn := f.Type().NumIn()
+	if len(uCall.Params) != numIn {
+		return nil, errors.New("not match params length")
+	}
+	in := make([]reflect.Value, numIn)
+	var ftype reflect.Type
+	fmt.Println("f: ", f)
+	fmt.Println("receiver: ", uCall.Receiver)
+	fmt.Println("method: ", uCall.Method)
+	for i, param := range uCall.Params {
+		ftype = f.Type().In(i)
+		fmt.Println("param type: ", reflect.ValueOf(param).Type())
+		fmt.Println("ftype: ", ftype)
+		switch ftype.Kind() {
+		case reflect.Int:
+			switch param.(type) {
+			case int:
+				in[i] = reflect.ValueOf(param)
+			case float64:
+				in[i] = reflect.ValueOf(int(param.(float64)))
+			case (bson.M):
+				useSelfItemCallMap := param.(bson.M)
+				fmt.Println("useSelfItemCallMap param type: ",
+					reflect.ValueOf(useSelfItemCallMap["params"]).Type())
+				nextCall := &UseSelfItemCall{
+					Receiver: useSelfItemCallMap["receiver"].(string),
+					Method:   useSelfItemCallMap["method"].(string),
+					Params:   useSelfItemCallMap["params"].([]interface{}),
+				}
+				fmt.Println("nextCall params", nextCall.Params)
+				fmt.Println("nextCall param type: ", reflect.ValueOf(nextCall.Params).Type())
+				nextF := nextCall.FindFunc(item, bio)
+				nextIn, err := nextCall.CastParams(nextF, item, bio)
+				if err != nil {
+					return nil, err
+				}
+				nextValue := nextF.Call(nextIn)
+				in[i] = nextValue[0]
+			default:
+				return nil, errors.New("nothing not match params type int")
+			}
+		case reflect.String:
+			switch param.(type) {
+			case (bson.M):
+				useSelfItemCallMap := param.(bson.M)
+				fmt.Println("useSelfItemCallMap param type: ",
+					reflect.ValueOf(useSelfItemCallMap["params"]).Type())
+				nextCall := &UseSelfItemCall{
+					Receiver: useSelfItemCallMap["receiver"].(string),
+					Method:   useSelfItemCallMap["method"].(string),
+					Params:   useSelfItemCallMap["params"].([]interface{}),
+				}
+				fmt.Println("nextCall params", nextCall.Params)
+				fmt.Println("nextCall param type: ", reflect.ValueOf(nextCall.Params).Type())
+				nextF := nextCall.FindFunc(item, bio)
+				nextIn, err := nextCall.CastParams(nextF, item, bio)
+				if err != nil {
+					return nil, err
+				}
+				nextValue := nextF.Call(nextIn)
+				in[i] = nextValue[0]
+			case string:
+				in[i] = reflect.ValueOf(param)
+			default:
+				return nil, errors.New("not match params type string")
+			}
+		case reflect.Float32:
+			switch param.(type) {
+			case float32:
+				in[i] = reflect.ValueOf(param)
+			case float64:
+				in[i] = reflect.ValueOf(float32(param.(float64)))
+			default:
+				return nil, errors.New("not match params type float32")
+			}
+		case reflect.Float64:
+			switch param.(type) {
+			case float32:
+				in[i] = reflect.ValueOf(param.(float64))
+			case float64:
+				in[i] = reflect.ValueOf(param)
+			default:
+				return nil, errors.New("not match params type float64")
+			}
+		case reflect.Slice:
+			switch ftype.String() {
+			case "[]int":
+				switch param.(type) {
+				case []int:
+					in[i] = reflect.ValueOf(param)
+				default:
+					return nil, errors.New("not match params type []int")
+				}
+			case "[]float64":
+				switch param.(type) {
+				case []float64:
+					in[i] = reflect.ValueOf(param)
+				default:
+					return nil, errors.New("not match params type []float64")
+				}
+			case "[]float32":
+				switch v := param.(type) {
+				case []float64:
+					f32s := make([]float32, len(v))
+					for i, f64 := range v {
+						f32s[i] = float32(f64)
+					}
+					in[i] = reflect.ValueOf(f32s)
+				default:
+					return nil, errors.New("not match params type []float32")
+				}
+			case "[]string":
+				switch param.(type) {
+				case []string:
+					in[i] = reflect.ValueOf(param)
+				default:
+					return nil, errors.New("not match params type []string")
+				}
+			}
+		}
+	}
+	return in, nil
 }
 
 type UseSelfItemDumpDB struct {
 	Item          *ItemDumpDB `bson:"item"`
 	StackCount    int         `bson:"stackCount"`
 	MaxStackCount int         `bson:"maxStackcount"`
+	//
+	UseSelfFuncArrays []*UseSelfItemCall `bson:"useSelfFuncs,omitempty"`
 }
 
 type UseSelfItemClient struct {
@@ -692,6 +865,10 @@ func (u *UseSelfItem) UseSelfItemClient() *UseSelfItemClient {
 		StackCount:    u.stackCount + 1,
 		MaxStackCount: u.maxStackCount,
 	}
+}
+
+func (u *UseSelfItem) Itemer() Itemer {
+	return u
 }
 
 func (u *UseSelfItem) DumpDB() *UseSelfItemDumpDB {

@@ -15,8 +15,11 @@ type CharClientCall interface {
 	Move(x, y float32)
 	ShutDownMove()
 	TalkScene(content string)
+	// equip
 	EquipBySlot(slot int)
 	UnequipBySlot(slot int)
+	// use
+	UseItemBySlot(slot int)
 	// NormalAttackByMid(mid int)
 	// PickItemById(id int)
 	// npc
@@ -142,6 +145,15 @@ func (c *Char) DumpDB() *CharDumpDB {
 	return cDump
 }
 
+func (c *Char) UpdateItemsUseSelfItemFunc() {
+	for _, uItem := range c.items.useSelfItem {
+		if uItem == nil {
+			continue
+		}
+		uItem.onUse = c.world.LoadUseSelfFuncByBaseId(uItem.baseId)
+	}
+}
+
 func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c := NewChar(cDump.Name, acc)
 	c.slotIndex = cDump.SlotIndex
@@ -156,6 +168,7 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.lastScene = cDump.LastScene
 	c.saveScene = cDump.SaveScene
 	c.items = cDump.Items.Load()
+	c.UpdateItemsUseSelfItemFunc()
 	c.usingEquips = cDump.UsingEquips.Load()
 	c.bodyViewId = cDump.BodyViewId
 	c.body = chipmunk.NewBody(1, 1)
@@ -177,19 +190,28 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 }
 
 func NewChar(name string, acc *Account) *Char {
+	dConfig := acc.world.DaoConfigs()
 	c := &Char{
 		Bio:         NewBio(acc.world),
 		bsonId:      bson.NewObjectId(),
 		usingEquips: NewUsingEquips(),
-		items:       NewItems(acc.world.Configs().maxCharItems),
+		items:       NewItems(dConfig.CharConfigs.MaxCharItems),
 		isOnline:    false,
 		account:     acc,
 		world:       acc.world,
 		sock:        acc.sock,
-		lastScene:   &SceneInfo{"daoCity", 0, 0},
-		saveScene:   &SceneInfo{"daoCity", 0, 0},
+		lastScene: &SceneInfo{
+			dConfig.CharConfigs.FirstScene.Name,
+			dConfig.CharConfigs.FirstScene.X,
+			dConfig.CharConfigs.FirstScene.Y,
+		},
+		saveScene: &SceneInfo{
+			dConfig.CharConfigs.FirstScene.Name,
+			dConfig.CharConfigs.FirstScene.X,
+			dConfig.CharConfigs.FirstScene.Y,
+		},
 	}
-	c.dzeny = 10000
+	c.dzeny = acc.world.DaoConfigs().CharConfigs.InitDzeny
 	c.name = name
 	c.level = 1
 	c.baseStr = 1
@@ -485,12 +507,13 @@ func (c *Char) UnequipBySlot(slot int) {
 	c.usingEquips[slot] = nil
 	hasUnequiped := false
 	itemsEquipSlot := 0
+EachEq:
 	for i, isEq := range c.items.equipment {
 		if isEq == nil {
 			itemsEquipSlot = i
 			c.items.equipment[i] = eq
 			hasUnequiped = true
-			break
+			break EachEq
 		}
 	}
 	if hasUnequiped == false {
@@ -584,13 +607,13 @@ func (c *Char) CancelTalkingNpc() {
 
 // TODO
 // add error
-func (c *Char) GetItem(item Itemer) int {
+func (c *Char) GetItem(item Itemer) (Itemer, int) {
 	switch item.ItemTypeByBaseId() {
 	case "equipment":
 		for i, eq := range c.items.equipment {
 			if eq == nil {
 				c.items.equipment[i] = item.(*Equipment)
-				return i
+				return item, i
 			}
 		}
 	case "useSelfItem":
@@ -598,10 +621,10 @@ func (c *Char) GetItem(item Itemer) int {
 			if us != nil && us.baseId == item.BaseId() &&
 				us.stackCount < us.maxStackCount {
 				us.stackCount += 1
-				return i
+				return us.Itemer(), i
 			} else if us == nil {
 				c.items.useSelfItem[i] = item.(*UseSelfItem)
-				return i
+				return item, i
 			}
 		}
 	case "etcItem":
@@ -609,22 +632,25 @@ func (c *Char) GetItem(item Itemer) int {
 			if etc != nil && etc.baseId == item.BaseId() &&
 				etc.stackCount < etc.maxStackCount {
 				etc.stackCount += 1
-				return i
+				return etc.Itemer(), i
 			} else if etc == nil {
 				c.items.etcItem[i] = item.(*EtcItem)
-				return i
+				return item, i
 			}
 		}
 	}
-	return -1
+	return nil, -1
 }
 
 func (c *Char) GetItemByBaseId(baseId int) {
-	item, err := c.world.NewItemByBaseId(baseId)
+	baseItem, err := c.world.NewItemByBaseId(baseId)
 	if err != nil {
 		return
 	}
-	putedSlot := c.GetItem(item)
+	item, putedSlot := c.GetItem(baseItem)
+	if putedSlot == -1 {
+		return
+	}
 	itemsUpdate := make(map[string]interface{})
 	iType := item.ItemTypeByBaseId()
 	itemsUpdate[strconv.Itoa(putedSlot)] = item.Client()
@@ -654,17 +680,55 @@ func (c *Char) OpenShop(s Shoper) {
 	c.SendMsg(clientCall)
 }
 
+func (c *Char) UseItemBySlot(slot int) {
+	if slot < 0 {
+		return
+	}
+	uitem := c.items.useSelfItem[slot]
+	if uitem == nil {
+		return
+	}
+	useFunc := uitem.OnUseFunc()
+	if useFunc != nil {
+		useFunc(c.Bioer())
+	} else {
+		c.world.logger.Println("useFunc is nil")
+	}
+	uitem.stackCount -= 1
+	if uitem.stackCount < 0 {
+		c.items.useSelfItem[slot] = nil
+	}
+	// client update
+	putedSlot := slot
+	itemsUpdate := make(map[string]interface{})
+	iType := uitem.ItemTypeByBaseId()
+	if uitem.stackCount < 0 {
+		itemsUpdate[strconv.Itoa(putedSlot)] = nil
+	} else {
+		itemsUpdate[strconv.Itoa(putedSlot)] = uitem.Client()
+	}
+	itemsClientUpdate := map[string]interface{}{
+		iType: itemsUpdate,
+	}
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateItems",
+		Params:   []interface{}{itemsClientUpdate},
+	}
+	c.SendMsg(clientCall)
+}
+
 func (c *Char) BuyItemFromOpeningShop(i int) {
 	shop := c.openingShop
 	if i < 0 || shop == nil {
 		return
 	}
-	item := shop.NewItemBySellIndex(i)
-	if c.dzeny < item.BuyPrice() || item == nil {
+	baseItem := shop.NewItemBySellIndex(i)
+	if c.dzeny < baseItem.BuyPrice() || baseItem == nil {
 		return
 	}
-	c.dzeny -= item.BuyPrice()
-	putedSlot := c.GetItem(item)
+	c.dzeny -= baseItem.BuyPrice()
+	item, putedSlot := c.GetItem(baseItem)
 	// client update
 	itemsUpdate := make(map[string]interface{})
 	iType := item.ItemTypeByBaseId()
