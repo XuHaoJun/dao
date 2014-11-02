@@ -19,6 +19,8 @@ type Scene struct {
 	staticBodys map[*chipmunk.Body]struct{}
 	//
 	cpSpace *chipmunk.Space
+	//
+	defaultGroundTextureName string
 }
 
 type SceneObjecter interface {
@@ -27,6 +29,7 @@ type SceneObjecter interface {
 	Scene() *Scene
 	SetScene(*Scene)
 	Body() *chipmunk.Body
+	SetBody(*chipmunk.Body)
 	AfterUpdate(delta float32)
 	BeforeUpdate(delta float32)
 	OnBeAddedToScene(s *Scene)
@@ -49,6 +52,8 @@ func NewScene(w *World, name string) *Scene {
 		sceneObjects: make(map[int]SceneObjecter),
 		staticBodys:  make(map[*chipmunk.Body]struct{}),
 		cpSpace:      cpSpace,
+		//
+		defaultGroundTextureName: "grass",
 	}
 }
 
@@ -58,11 +63,13 @@ type SceneClient struct {
 	Run         bool            `json:"run"`
 	Width       float32         `json:"width"`
 	Height      float32         `json:"height"`
+	//
+	DefaultGroundTextureName string `json:"defaultGroundTextureName"`
 }
 
 func (s *Scene) SceneClient() *SceneClient {
-	cpBodyClients := make([]*CpBodyClient, len(s.staticBodys))
 	i := 0
+	cpBodyClients := make([]*CpBodyClient, len(s.staticBodys))
 	for sbody, _ := range s.staticBodys {
 		cpBodyClients[i] = ToCpBodyClient(sbody)
 		i = i + 1
@@ -73,6 +80,7 @@ func (s *Scene) SceneClient() *SceneClient {
 		Run:         false,
 		Width:       s.width,
 		Height:      s.height,
+		DefaultGroundTextureName: s.defaultGroundTextureName,
 	}
 }
 
@@ -197,7 +205,8 @@ func (s *Scene) Remove(sb SceneObjecter) {
 	}
 	delete(s.sceneObjects, sb.Id())
 	sb.SetScene(nil)
-	// sb.SetId(0)
+	sb.SetId(-1)
 	s.cpSpace.RemoveBody(sb.Body())
+	sb.SetBody(sb.Body().Clone())
 	sb.OnBeRemovedToScene(s)
 }

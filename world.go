@@ -68,6 +68,8 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 	if err != nil {
 		return nil, err
 	}
+	go db.UpdateAccountIndex()
+	//
 	err = db.ImportDefaultJsonDB()
 	if err != nil {
 		return nil, err
@@ -92,15 +94,21 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		util:  &Util{},
 		cache: NewCache(),
 	}
-	w.interpreter = NewWorldInterpreter(w)
-	baseScene := NewWallScene(w, "daoCity", 2000, 2000)
+	// daoCity scene
+	daoCity := NewWallScene(w, "daoCity", 2000, 2000)
 	senderNpc := NewNpcByBaseId(w, 1)
-	baseScene.Add(senderNpc.SceneObjecter())
+	daoCity.Add(senderNpc.SceneObjecter())
 	jackNpc := NewNpcByBaseId(w, 2)
 	jackNpc.SetPosition(300, 100)
-	baseScene.Add(jackNpc.SceneObjecter())
-	w.scenes[baseScene.name] = baseScene
-	go w.db.UpdateAccountIndex()
+	daoCity.Add(jackNpc.SceneObjecter())
+	w.scenes[daoCity.name] = daoCity
+	//
+	daoField01 := NewWallScene(w, "daoField01", 4000, 4000)
+	daoField01.defaultGroundTextureName = "dirt"
+	w.scenes["daoField01"] = daoField01
+	//
+	w.interpreter = NewWorldInterpreter(w)
+	//
 	return w, nil
 }
 
@@ -431,6 +439,8 @@ func (w *World) LoadUseSelfFuncByBaseId(baseId int) func(b Bioer) {
 }
 
 func (w *World) ParseUseSelfFuncArrays(useCalls []*UseSelfItemCall, item Itemer) func(b Bioer) {
+	// TODO
+	// should gen funtion call and put it to return.
 	return func(bio Bioer) {
 		if bio == nil ||
 			reflect.ValueOf(bio).IsNil() {
@@ -443,6 +453,14 @@ func (w *World) ParseUseSelfFuncArrays(useCalls []*UseSelfItemCall, item Itemer)
 			}
 		}
 	}
+}
+
+func (w *World) FindSceneByName(name string) *Scene {
+	s, ok := w.scenes[name]
+	if !ok {
+		return nil
+	}
+	return s
 }
 
 func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {

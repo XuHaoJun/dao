@@ -15,6 +15,7 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 				if nextNpcTalk == nil {
 					switch c := b.(type) {
 					case Charer:
+						c.TeleportBySceneName("daoField01", 0, 0)
 						c.CancelTalkingNpc()
 					default:
 						b.CancelTalkingNpc()
@@ -37,7 +38,7 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 		npc.name = "Jack"
 		npc.bodyViewId = 5000
 		npc.shop = &Shop{"Jack's Shop",
-			[]int{1, 5001, 10001},
+			[]int{1, 5001, 5002, 10001},
 			npc.Bioer(),
 			npc.world}
 		npcOpt0 := &NpcOption{

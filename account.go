@@ -184,6 +184,7 @@ func (a *Account) CreateChar(name string) {
 		char := NewChar(name, a)
 		char.slotIndex = len(a.chars)
 		a.chars = append(a.chars, char)
+		char.GetInitItems()
 		char.Save()
 		a.world.logger.Println(
 			"Account:", a.username,

@@ -173,6 +173,10 @@ func (i *Item) SetOwner(b Bioer) {
 	i.owner = b
 }
 
+func (i *Item) SetBody(body *chipmunk.Body) {
+	i.body = body
+}
+
 func (i *Item) Body() *chipmunk.Body {
 	return i.body
 }
@@ -789,6 +793,8 @@ func (uCall *UseSelfItemCall) CastParams(f reflect.Value, item Itemer, bio Bioer
 			}
 		case reflect.Float32:
 			switch param.(type) {
+			case int:
+				in[i] = reflect.ValueOf(float32(param.(int)))
 			case float32:
 				in[i] = reflect.ValueOf(param)
 			case float64:

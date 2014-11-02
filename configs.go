@@ -26,8 +26,9 @@ type CharFirstScene struct {
 }
 
 type CharConfigs struct {
-	InitDzeny    int `json:"initDzeny"`
-	MaxCharItems int `json:"maxCharItems"`
+	InitDzeny    int      `json:"initDzeny"`
+	InitItems    [][2]int `json:"initItems"`
+	MaxCharItems int      `json:"maxCharItems"`
 	FirstScene   *CharFirstScene
 }
 

@@ -20,6 +20,7 @@ type Bioer interface {
 	Move(x, y float32)
 	ShutDownMove()
 	Body() *chipmunk.Body
+	SetBody(*chipmunk.Body)
 	Scene() *Scene
 	SetScene(*Scene)
 	BioClient() *BioClient
@@ -32,6 +33,8 @@ type Bioer interface {
 	SetTalkingNpcInfo(*TalkingNpcInfo)
 	CancelTalkingNpc()
 	ResponseTalkingNpc(optIndex int)
+	// teleport
+	TeleportBySceneName(name string, x float32, y float32) *Scene
 }
 
 type Bio struct {
@@ -214,6 +217,27 @@ func (m *MoveState) MoveStateClient() *MoveStateClient {
 	}
 }
 
+func NewBioViewAOIState(bio *Bio) *ViewAOIState {
+	viewAOIState := &ViewAOIState{
+		running:              true,
+		stepDone:             false,
+		radius:               1000.0,
+		inAreaSceneObjecters: make(map[SceneObjecter]struct{}),
+	}
+	viewAOIState.OnSceneObjectEnter = bio.OnSceneObjectEnterViewAOIFunc()
+	viewAOIState.OnSceneObjectLeave = bio.OnSceneObjectLeaveViewAOIFunc()
+	viewAOIBody := chipmunk.NewBody(1, 1)
+	viewAOIBody.CallbackHandler = viewAOIState
+	viewAOIShape := chipmunk.NewCircle(vect.Vector_Zero, viewAOIState.radius)
+	viewAOIShape.IsSensor = true
+	viewAOIBody.AddShape(viewAOIShape)
+	if bio.body != nil {
+		viewAOIBody.SetPosition(bio.body.Position())
+	}
+	viewAOIState.body = viewAOIBody
+	return viewAOIState
+}
+
 func NewBio(w *World) *Bio {
 	body := chipmunk.NewBody(1, 1)
 	circle := chipmunk.NewCircle(vect.Vector_Zero, float32(32.0))
@@ -234,12 +258,6 @@ func NewBio(w *World) *Bio {
 			running:      false,
 			baseVelocity: vect.Vect{X: 74, Y: 74},
 		},
-		viewAOIState: &ViewAOIState{
-			running:              true,
-			stepDone:             false,
-			radius:               1000.0,
-			inAreaSceneObjecters: make(map[SceneObjecter]struct{}),
-		},
 		str: 1,
 		vit: 1,
 		wis: 1,
@@ -250,16 +268,7 @@ func NewBio(w *World) *Bio {
 			options: make([]int, 0),
 		},
 	}
-	viewAOIState := bio.viewAOIState
-	viewAOIState.OnSceneObjectEnter = bio.OnSceneObjectEnterViewAOIFunc()
-	viewAOIState.OnSceneObjectLeave = bio.OnSceneObjectLeaveViewAOIFunc()
-	viewAOIBody := chipmunk.NewBody(1, 1)
-	viewAOIBody.CallbackHandler = viewAOIState
-	viewAOIShape := chipmunk.NewCircle(vect.Vector_Zero, bio.viewAOIState.radius)
-	viewAOIShape.IsSensor = true
-	viewAOIBody.AddShape(viewAOIShape)
-	viewAOIBody.SetPosition(body.Position())
-	viewAOIState.body = viewAOIBody
+	bio.viewAOIState = NewBioViewAOIState(bio)
 	body.UserData = bio
 	bio.normalAttackState = &NormalAttackState{
 		attackTimeStep: 2 * time.Second,
@@ -299,6 +308,11 @@ func (b *Bio) SetPosition(x float32, y float32) {
 	b.body.SetPosition(
 		vect.Vect{X: vect.Float(x),
 			Y: vect.Float(y)})
+	if b.viewAOIState.running && b.viewAOIState.body != nil {
+		b.viewAOIState.body.SetPosition(
+			vect.Vect{X: vect.Float(x),
+				Y: vect.Float(y)})
+	}
 }
 
 type NormalAttackState struct {
@@ -308,11 +322,20 @@ type NormalAttackState struct {
 }
 
 func (b *Bio) OnBeAddedToScene(s *Scene) {
+	b.viewAOIState.body.SetPosition(b.body.Position())
 	s.AddBody(b.viewAOIState.body)
 }
 
 func (b *Bio) OnBeRemovedToScene(s *Scene) {
 	s.RemoveBody(b.viewAOIState.body)
+	old := b.viewAOIState
+	b.viewAOIState = NewBioViewAOIState(b)
+	if old.OnSceneObjectEnter != nil {
+		b.viewAOIState.OnSceneObjectEnter = old.OnSceneObjectEnter
+	}
+	if old.OnSceneObjectLeave != nil {
+		b.viewAOIState.OnSceneObjectLeave = old.OnSceneObjectLeave
+	}
 }
 
 func (b *Bio) OnSceneObjectEnterViewAOIFunc() func(sb SceneObjecter) {
@@ -471,6 +494,10 @@ func (b *Bio) Scene() *Scene {
 
 func (b *Bio) SetScene(s *Scene) {
 	b.scene = s
+}
+
+func (b *Bio) SetBody(body *chipmunk.Body) {
+	b.body = body
 }
 
 func (b *Bio) Body() *chipmunk.Body {
@@ -683,6 +710,24 @@ type ChatMessageClient struct {
 	ChatType string `json:"chatType"`
 	Talker   string `json:"talker"`
 	Content  string `json:"content"`
+}
+
+func (b *Bio) TeleportBySceneName(name string, x float32, y float32) *Scene {
+	curScene := b.scene
+	targetScene := b.world.FindSceneByName(name)
+	if curScene == nil ||
+		targetScene == nil ||
+		targetScene == curScene {
+		return nil
+	}
+	curScene.Remove(b.SceneObjecter())
+	b.body.SetPosition(
+		vect.Vect{
+			X: vect.Float(x),
+			Y: vect.Float(y),
+		})
+	targetScene.Add(b.SceneObjecter())
+	return targetScene
 }
 
 func (b *Bio) TalkScene(content string) {

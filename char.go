@@ -145,6 +145,72 @@ func (c *Char) DumpDB() *CharDumpDB {
 	return cDump
 }
 
+func (c *Char) TeleportBySceneName(name string, x float32, y float32) (targetScene *Scene) {
+	curScene := c.scene
+	targetScene = c.world.FindSceneByName(name)
+	if curScene == nil ||
+		targetScene == nil {
+		return
+	}
+	if curScene == targetScene {
+		c.SetPosition(x, y)
+		clientCall := &ClientCall{
+			Receiver: "char",
+			Method:   "handleSetPosition",
+			Params: []interface{}{map[string]float32{
+				"x": x,
+				"y": y,
+			}},
+		}
+		c.SendMsg(clientCall)
+		return curScene
+	}
+	// server
+	curScene.Remove(c.SceneObjecter())
+	c.SetPosition(x, y)
+	targetScene.Add(c.SceneObjecter())
+	// client update
+	clientCalls := make([]*ClientCall, 6)
+	clientCalls[0] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleLeaveScene",
+		Params:   []interface{}{},
+	}
+	clientCalls[1] = &ClientCall{
+		Receiver: "world",
+		Method:   "handleDestroyScene",
+		Params:   []interface{}{curScene.name},
+	}
+	clientCalls[2] = &ClientCall{
+		Receiver: "world",
+		Method:   "handleAddScene",
+		Params:   []interface{}{targetScene.SceneClient()},
+	}
+	clientCalls[3] = &ClientCall{
+		Receiver: "world",
+		Method:   "handleRunScene",
+		Params:   []interface{}{targetScene.name},
+	}
+	clientCalls[4] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleJoinScene",
+		Params: []interface{}{map[string]interface{}{
+			"sceneName": targetScene.name,
+			"id":        c.id,
+		}},
+	}
+	clientCalls[5] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleSetPosition",
+		Params: []interface{}{map[string]float32{
+			"x": x,
+			"y": y,
+		}},
+	}
+	c.SendMsg(clientCalls)
+	return
+}
+
 func (c *Char) UpdateItemsUseSelfItemFunc() {
 	for _, uItem := range c.items.useSelfItem {
 		if uItem == nil {
@@ -225,10 +291,6 @@ func NewChar(name string, acc *Account) *Char {
 	c.CalcAttributes()
 	c.hp = c.maxHp
 	c.mp = c.maxMp
-	freeEq, err := c.world.NewItemByBaseId(1)
-	if err == nil {
-		c.items.equipment[0] = freeEq.(*Equipment)
-	}
 	c.pickRadius = 42.0
 	c.pickRange = chipmunk.NewBody(1, 1)
 	pickShape := chipmunk.NewCircle(vect.Vector_Zero, c.pickRadius)
@@ -264,6 +326,24 @@ func (c *Char) CalcAttributes() {
 		c.matk += eq.bonusInfo.matk
 		c.def += eq.bonusInfo.def
 		c.mdef += eq.bonusInfo.mdef
+	}
+}
+
+func (c *Char) GetInitItems() {
+	initItems := c.world.DaoConfigs().CharConfigs.InitItems
+	if initItems == nil {
+		return
+	}
+	for _, itemPair := range initItems {
+		itemBaseId := itemPair[0]
+		itemCount := itemPair[1]
+		if itemCount == 0 {
+			c.GetItemByBaseId(itemBaseId)
+		} else {
+			for i := 0; i < itemCount; i++ {
+				c.GetItemByBaseId(itemBaseId)
+			}
+		}
 	}
 }
 
@@ -384,11 +464,15 @@ func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 
 func (c *Char) OnSceneObjectLeaveViewAOIFunc() func(SceneObjecter) {
 	return func(leaveSb SceneObjecter) {
+		curScene := leaveSb.Scene()
+		if curScene == nil || leaveSb == c.SceneObjecter() {
+			return
+		}
 		// remove sceneobject to client screen
 		clientCall := &ClientCall{
 			Receiver: "scene",
 			Method:   "handleRemoveById",
-			Params:   []interface{}{leaveSb.Id()},
+			Params:   []interface{}{leaveSb.Id(), curScene.name},
 		}
 		c.sock.SendMsg(clientCall)
 	}
