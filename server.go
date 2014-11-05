@@ -2,14 +2,14 @@ package dao
 
 import (
 	"encoding/json"
+	"github.com/go-martini/martini"
+	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
-
-	"github.com/go-martini/martini"
-	"github.com/gorilla/websocket"
 )
 
 type wsConn struct {
@@ -119,17 +119,21 @@ func (hub *WsHub) Run() {
 }
 
 type Server struct {
-	world *World
-	wsHub *WsHub
+	world   *World
+	wsHub   *WsHub
+	configs *DaoConfigs
 }
 
-func NewServer(needReadConfig bool) *Server {
+func NewServer(readConfig bool) *Server {
 	var w *World
 	var err error
-	if needReadConfig {
-		w, err = NewWorldByConfig(NewDaoConfigsByConfigFiles())
+	var configs *DaoConfigs
+	if readConfig {
+		configs = NewDaoConfigsByConfigFiles()
+		w, err = NewWorldByConfig(configs)
 	} else {
-		w, err = NewWorldByConfig(NewDefaultDaoConfigs())
+		configs = NewDefaultDaoConfigs()
+		w, err = NewWorldByConfig(configs)
 	}
 	if err != nil {
 		panic(err)
@@ -141,8 +145,9 @@ func NewServer(needReadConfig bool) *Server {
 		Quit:        make(chan struct{}),
 	}
 	ds := &Server{
-		world: w,
-		wsHub: hub,
+		world:   w,
+		wsHub:   hub,
+		configs: configs,
 	}
 	w.server = ds
 	hub.server = ds
@@ -200,38 +205,16 @@ func NewWsConn(ws *websocket.Conn, hub *WsHub) *wsConn {
 }
 
 func (s *Server) RunHTTP() {
-	m := martini.Classic()
-	m.Get("/testPage", s.testPage)
 	go s.wsHub.Run()
+	port := s.configs.ServerConfigs.HttpPort
+	m := martini.Classic()
 	m.Map(s)
 	m.Get("/daows", serveWs)
-	m.Run()
-}
-
-func (s *Server) testPage() string {
-	return `<html><body><script src='//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
-		 <ul id=messages></ul><form><input id=message><input type="submit" id=send value=Send></form>
-		 <script>
-		 var c=new WebSocket("ws://" + location.hostname + ":"  + location.port + "/daows");
-		 c.onopen = function(){
-		   c.onmessage = function(response){
-		     console.log(response.data);
-		     var newMessage = $('<li>').text(response.data);
-		     $('#messages').append(newMessage);
-		     $('#message').val('');
-		   };
-		   $('form').submit(function(){
-		     c.send($('#message').val());
-		     return false;
-		   });
-		 }
-		 </script></body></html>`
+	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(port), m))
 }
 
 func (s *Server) Run() {
-	go s.RunHTTP()
+	go s.world.Run()
 	go s.HandleSignal()
-	s.world.Run()
-	// may be handle pure tcp connection in the future
-	// s.RunTCP()
+	s.RunHTTP()
 }
