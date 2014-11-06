@@ -29,14 +29,12 @@ type Itemer interface {
 }
 
 type Item struct {
-	id         int
+	*SceneObject
 	baseId     int
 	name       string
 	ageisName  string
 	iconViewId int
-	scene      *Scene
 	owner      Bioer
-	body       *chipmunk.Body
 	bodyViewId int
 	buyPrice   int
 	sellPrice  int
@@ -115,18 +113,12 @@ func NewItem() *Item {
 	body.SetPosition(vect.Vector_Zero)
 	body.AddShape(circle)
 	return &Item{
-		body:       body,
+		SceneObject: &SceneObject{
+			body: body,
+		},
 		iconViewId: 1,
 		bodyViewId: 3000,
 	}
-}
-
-func (i *Item) Id() int {
-	return i.id
-}
-
-func (i *Item) SetId(id int) {
-	i.id = id
 }
 
 func (i *Item) BodyViewId() int {
@@ -157,28 +149,12 @@ func (i *Item) SetIconViewId(vid int) {
 	i.iconViewId = vid
 }
 
-func (i *Item) Scene() *Scene {
-	return i.scene
-}
-
-func (i *Item) SetScene(s *Scene) {
-	i.scene = s
-}
-
 func (i *Item) Owner() Bioer {
 	return i.owner
 }
 
 func (i *Item) SetOwner(b Bioer) {
 	i.owner = b
-}
-
-func (i *Item) SetBody(body *chipmunk.Body) {
-	i.body = body
-}
-
-func (i *Item) Body() *chipmunk.Body {
-	return i.body
 }
 
 func (i *Item) BuyPrice() int {

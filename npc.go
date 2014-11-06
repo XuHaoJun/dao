@@ -100,6 +100,10 @@ func NewNpc(w *World) *Npc {
 	}
 	npc.bodyViewId = 5000
 	npc.body.UserData = npc
+	npc.clientCallPublisher = npc
+	npc.Bio.skillUser = npc
+	npc.CalcAttributes()
+	npc.hp = npc.maxHp
 	return npc
 }
 

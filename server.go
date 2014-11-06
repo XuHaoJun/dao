@@ -13,12 +13,14 @@ import (
 )
 
 type wsConn struct {
-	ws       *websocket.Conn
-	hub      *WsHub
-	server   *Server
-	account  *Account
-	readQuit chan struct{}
-	send     chan []byte
+	ws              *websocket.Conn
+	hub             *WsHub
+	server          *Server
+	account         *Account
+	readQuit        chan struct{}
+	send            chan []byte
+	sendClientCall  chan *ClientCall
+	sendClientCalls chan []*ClientCall
 }
 
 func (conn *wsConn) write(mt int, msg []byte) error {
@@ -37,6 +39,30 @@ func (conn *wsConn) writeRun() {
 			if !ok {
 				conn.write(websocket.CloseMessage, []byte{})
 				return
+			}
+			if err := conn.write(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case clientCall, ok := <-conn.sendClientCall:
+			if !ok {
+				conn.write(websocket.CloseMessage, []byte{})
+				return
+			}
+			msg, err := json.Marshal(clientCall)
+			if err != nil {
+				continue
+			}
+			if err := conn.write(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case clientCalls, ok := <-conn.sendClientCalls:
+			if !ok {
+				conn.write(websocket.CloseMessage, []byte{})
+				return
+			}
+			msg, err := json.Marshal(clientCalls)
+			if err != nil {
+				continue
 			}
 			if err := conn.write(websocket.TextMessage, msg); err != nil {
 				return
@@ -62,8 +88,13 @@ func (conn *wsConn) SendJSON(msg interface{}) (err error) {
 	return
 }
 
-func (conn *wsConn) SendMsg(msg interface{}) (err error) {
-	err = conn.SendJSON(msg)
+func (conn *wsConn) SendClientCall(msg *ClientCall) {
+	conn.sendClientCall <- msg
+	return
+}
+
+func (conn *wsConn) SendClientCalls(msg []*ClientCall) {
+	conn.sendClientCalls <- msg
 	return
 }
 
@@ -196,11 +227,13 @@ func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
 
 func NewWsConn(ws *websocket.Conn, hub *WsHub) *wsConn {
 	return &wsConn{
-		ws:      ws,
-		hub:     hub,
-		server:  hub.server,
-		account: nil,
-		send:    make(chan []byte, 20480),
+		ws:              ws,
+		hub:             hub,
+		server:          hub.server,
+		account:         nil,
+		send:            make(chan []byte, 8),
+		sendClientCall:  make(chan *ClientCall, 1024),
+		sendClientCalls: make(chan []*ClientCall, 1024),
 	}
 }
 

@@ -70,7 +70,7 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 						Method:   "handleNpcTalkBox",
 						Params:   []interface{}{nextNpcTalk.NpcTalkClient()},
 					}
-					c.SendMsg(clientCall)
+					c.SendClientCall(clientCall)
 					// c.GetItemByBaseId(1)
 					c.GetItemByBaseId(10001)
 					c.GetItemByBaseId(5001)
@@ -103,7 +103,7 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 						Method:   "handleNpcTalkBox",
 						Params:   []interface{}{nextNpcTalk.NpcTalkClient()},
 					}
-					c.SendMsg(clientCall)
+					c.SendClientCall(clientCall)
 				}
 			},
 		}

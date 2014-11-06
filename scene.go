@@ -23,19 +23,6 @@ type Scene struct {
 	defaultGroundTextureName string
 }
 
-type SceneObjecter interface {
-	Id() int
-	SetId(int)
-	Scene() *Scene
-	SetScene(*Scene)
-	Body() *chipmunk.Body
-	SetBody(*chipmunk.Body)
-	AfterUpdate(delta float32)
-	BeforeUpdate(delta float32)
-	OnBeAddedToScene(s *Scene)
-	OnBeRemovedToScene(s *Scene)
-}
-
 type SceneInfo struct {
 	Name string
 	X    float32
@@ -127,7 +114,7 @@ type ClientCallPublisher interface {
 func (s *Scene) DispatchClientCall(sender ClientCallPublisher, c *ClientCall) {
 	for _, sb := range s.sceneObjects {
 		char, ok := sb.(Charer)
-		if ok {
+		if ok && char.Scene() != nil {
 			char.OnReceiveClientCall(sender, c)
 		}
 	}
@@ -206,7 +193,8 @@ func (s *Scene) Remove(sb SceneObjecter) {
 	delete(s.sceneObjects, sb.Id())
 	sb.SetScene(nil)
 	sb.SetId(-1)
-	s.cpSpace.RemoveBody(sb.Body())
+	oldBody := sb.Body()
 	sb.SetBody(sb.Body().Clone())
+	s.cpSpace.RemoveBody(oldBody)
 	sb.OnBeRemovedToScene(s)
 }

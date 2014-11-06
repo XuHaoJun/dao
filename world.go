@@ -28,6 +28,8 @@ type World struct {
 	//
 	SceneObjecterChangeScene chan *ChangeScene
 	//
+	MobReborn chan *Mob
+	//
 	// AccountLoginChar  chan *AccountLoginChar
 	// AccountCreateChar chan *AccountCreateChar
 	//
@@ -85,30 +87,39 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		SceneObjecterChangeScene: make(chan *ChangeScene, 256),
 		ParseClientCall:          make(chan *WorldParseClientCall, 10240),
 		InterpreterEval:          make(chan string, 256),
+		MobReborn:                make(chan *Mob, 1024),
 		//
-		delta:    1.0 / 15.0,
-		timeStep: (1.0 * time.Second / 15.0),
+		delta:    1.0 / 20.0,
+		timeStep: (1.0 * time.Second / 20.0),
 		//
 		Quit: make(chan struct{}),
 		//
 		util:  &Util{},
 		cache: NewCache(),
 	}
-	// daoCity scene
+	// scenes
 	daoCity := NewWallScene(w, "daoCity", 2000, 2000)
 	senderNpc := NewNpcByBaseId(w, 1)
+	senderNpc.SetPosition(160, 160)
 	daoCity.Add(senderNpc.SceneObjecter())
 	jackNpc := NewNpcByBaseId(w, 2)
 	jackNpc.SetPosition(300, 100)
 	daoCity.Add(jackNpc.SceneObjecter())
 	w.scenes[daoCity.name] = daoCity
 	//
-	daoField01 := NewWallScene(w, "daoField01", 4000, 4000)
+	daoField01 := NewWallScene(w, "daoField01", 6000, 6000)
 	daoField01.defaultGroundTextureName = "dirt"
 	w.scenes["daoField01"] = daoField01
-	//
+	// mobs
+	var foundScene *Scene
+	paul := NewMobByBaseId(w, 1)
+	paul.SetPosition(100, 100)
+	foundScene = w.FindSceneByName(paul.initSceneName)
+	if foundScene != nil {
+		foundScene.Add(paul.SceneObjecter())
+	}
+	// interpreter
 	w.interpreter = NewWorldInterpreter(w)
-	//
 	return w, nil
 }
 
@@ -194,6 +205,8 @@ func (w *World) Run() {
 				sb.Scene().Remove(sb)
 				scene.Add(sb)
 			}
+		case mob := <-w.MobReborn:
+			mob.Reborn()
 		case <-w.Quit:
 			for _, acc := range w.accounts {
 				acc.Logout()
@@ -219,7 +232,7 @@ func (w *World) registerAccount(username string, password string, sock *wsConn) 
 			Method:   "handleErrorLoginAccount",
 			Params:   clientErr,
 		}
-		sock.SendMsg(clientCall)
+		sock.SendClientCall(clientCall)
 	} else if err == mgo.ErrNotFound {
 		acc := NewAccount(username, password, w)
 		acc.Save()
@@ -368,7 +381,7 @@ func (w *World) TalkWorld(name string, content string) {
 			continue
 		}
 		char := acc.UsingChar()
-		char.SendMsg(clientCall)
+		char.sock.SendClientCall(clientCall)
 	}
 }
 
@@ -381,7 +394,7 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) {
 			Method:   "handleErrorLoginAccount",
 			Params:   clientErr,
 		}
-		sock.SendMsg(clientCall)
+		sock.SendClientCall(clientCall)
 		return
 	}
 	foundAcc := &AccountDumpDB{}
@@ -397,7 +410,7 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) {
 			Method:   "handleErrorLoginAccount",
 			Params:   clientErr,
 		}
-		sock.SendMsg(clientCall)
+		sock.SendClientCall(clientCall)
 		return
 	}
 	acc := foundAcc.Load(w)
@@ -416,7 +429,7 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) {
 		Method:   "handleSuccessLoginAcccount",
 		Params:   []interface{}{param},
 	}
-	sock.SendMsg(clientCall)
+	sock.SendClientCall(clientCall)
 	w.logger.Println("Account:", acc.username, "Logined.")
 }
 

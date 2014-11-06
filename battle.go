@@ -21,3 +21,9 @@ type BattleInfo struct {
 	def    int
 	mdef   int
 }
+
+type Damage struct {
+	normal int
+	fire   int
+	ice    int
+}

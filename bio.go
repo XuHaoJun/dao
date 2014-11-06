@@ -1,11 +1,9 @@
 package dao
 
 import (
-	"math"
-	"time"
-
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
+	"math"
 )
 
 var (
@@ -35,25 +33,30 @@ type Bioer interface {
 	ResponseTalkingNpc(optIndex int)
 	// teleport
 	TeleportBySceneName(name string, x float32, y float32) *Scene
+	//
+	Str() int
+	Spi() int
+	Vit() int
+	Wis() int
+	Hp() int
+	//
+	IsDied() bool
+	TakeDamage(d int, b Bioer)
 }
 
 type Bio struct {
+	*SceneObject
 	world      *World
-	id         int
 	name       string
-	body       *chipmunk.Body
 	bodyViewId int
-	scene      *Scene
 	//
 	moveState *MoveState
 	//
 	clientCallPublisher ClientCallPublisher
+	skillUser           Bioer
 	//
 	// aoi
-	// enableViewAOI bool
 	viewAOIState *ViewAOIState
-	// viewAOIRadius float32
-	// viewAOI       *ViewAOI
 	//
 	level int
 	// main attribue
@@ -74,7 +77,7 @@ type Bio struct {
 	OnKill     func(target Bioer)
 	OnBeKilled func(killer Bioer)
 	// skills
-	normalAttackState *NormalAttackState
+	fireBallState *FireBallState
 	// npc interactive
 	talkingNpcInfo *TalkingNpcInfo
 }
@@ -147,6 +150,7 @@ type CpBodyClient struct {
 	Angle    vect.Float    `json:"angle"`
 	Shapes   []interface{} `json:"shapes"`
 	Position *CpVectClient `json:"position"`
+	Velocity *CpVectClient `json:"velocity"`
 }
 
 type ViewAOIState struct {
@@ -217,11 +221,11 @@ func (m *MoveState) MoveStateClient() *MoveStateClient {
 	}
 }
 
-func NewBioViewAOIState(bio *Bio) *ViewAOIState {
+func NewBioViewAOIState(r float32, bio *Bio) *ViewAOIState {
 	viewAOIState := &ViewAOIState{
 		running:              true,
 		stepDone:             false,
-		radius:               1000.0,
+		radius:               r,
 		inAreaSceneObjecters: make(map[SceneObjecter]struct{}),
 	}
 	viewAOIState.OnSceneObjectEnter = bio.OnSceneObjectEnterViewAOIFunc()
@@ -231,9 +235,6 @@ func NewBioViewAOIState(bio *Bio) *ViewAOIState {
 	viewAOIShape := chipmunk.NewCircle(vect.Vector_Zero, viewAOIState.radius)
 	viewAOIShape.IsSensor = true
 	viewAOIBody.AddShape(viewAOIShape)
-	if bio.body != nil {
-		viewAOIBody.SetPosition(bio.body.Position())
-	}
 	viewAOIState.body = viewAOIBody
 	return viewAOIState
 }
@@ -250,10 +251,11 @@ func NewBio(w *World) *Bio {
 	body.IgnoreGravity = true
 	body.AddShape(circle)
 	bio := &Bio{
+		SceneObject: &SceneObject{
+			body: body,
+		},
 		world: w,
 		name:  "",
-		body:  body,
-		scene: nil,
 		moveState: &MoveState{
 			running:      false,
 			baseVelocity: vect.Vect{X: 74, Y: 74},
@@ -268,14 +270,10 @@ func NewBio(w *World) *Bio {
 			options: make([]int, 0),
 		},
 	}
-	bio.viewAOIState = NewBioViewAOIState(bio)
 	body.UserData = bio
-	bio.normalAttackState = &NormalAttackState{
-		attackTimeStep: 2 * time.Second,
-		attackRadius:   2.0,
-		running:        false,
-	}
+	bio.viewAOIState = NewBioViewAOIState(1000, bio)
 	bio.clientCallPublisher = bio.ClientCallPublisher()
+	bio.skillUser = bio.Bioer()
 	return bio
 }
 
@@ -315,12 +313,6 @@ func (b *Bio) SetPosition(x float32, y float32) {
 	}
 }
 
-type NormalAttackState struct {
-	attackTimeStep time.Duration
-	attackRadius   float32
-	running        bool
-}
-
 func (b *Bio) OnBeAddedToScene(s *Scene) {
 	b.viewAOIState.body.SetPosition(b.body.Position())
 	s.AddBody(b.viewAOIState.body)
@@ -329,7 +321,7 @@ func (b *Bio) OnBeAddedToScene(s *Scene) {
 func (b *Bio) OnBeRemovedToScene(s *Scene) {
 	s.RemoveBody(b.viewAOIState.body)
 	old := b.viewAOIState
-	b.viewAOIState = NewBioViewAOIState(b)
+	b.viewAOIState = NewBioViewAOIState(old.radius, b)
 	if old.OnSceneObjectEnter != nil {
 		b.viewAOIState.OnSceneObjectEnter = old.OnSceneObjectEnter
 	}
@@ -474,6 +466,7 @@ func (b *Bio) BeforeUpdate(delta float32) {
 func (b *Bio) AfterUpdate(delta float32) {
 	b.MoveUpdate(delta)
 	b.ViewAOIUpdate(delta)
+	b.FireBallUpdate(delta)
 }
 
 func (b *Bio) Name() string {
@@ -484,36 +477,35 @@ func (b *Bio) World() *World {
 	return b.world
 }
 
-func (b *Bio) Id() int {
-	return b.id
-}
-
-func (b *Bio) Scene() *Scene {
-	return b.scene
-}
-
-func (b *Bio) SetScene(s *Scene) {
-	b.scene = s
-}
-
-func (b *Bio) SetBody(body *chipmunk.Body) {
-	b.body = body
-}
-
-func (b *Bio) Body() *chipmunk.Body {
-	return b.body
-}
-
-func (b *Bio) SetId(id int) {
-	b.id = id
-}
-
 func (b *Bio) ClientCallPublisher() ClientCallPublisher {
 	return b
 }
 
 func (b *Bio) PublishClientCall(c *ClientCall) {
+	if b.scene == nil {
+		return
+	}
 	b.scene.DispatchClientCall(b, c)
+}
+
+func (b *Bio) Hp() int {
+	return b.hp
+}
+
+func (b *Bio) Str() int {
+	return b.str
+}
+
+func (b *Bio) Vit() int {
+	return b.vit
+}
+
+func (b *Bio) Wis() int {
+	return b.wis
+}
+
+func (b *Bio) Spi() int {
+	return b.spi
 }
 
 func (b *Bio) CalcAttributes() {
@@ -580,62 +572,6 @@ func (b *Bio) Level() int {
 
 func (b *Bio) IsDied() bool {
 	return b.hp <= 0
-}
-
-func ToCpBodyClient(body *chipmunk.Body) *CpBodyClient {
-	// TODO
-	// handle more shape
-	shapeClients := make([]interface{}, len(body.Shapes))
-	for i, shape := range body.Shapes {
-		var shapeClient map[string]interface{}
-		switch realShape := shape.ShapeClass.(type) {
-		case *chipmunk.CircleShape:
-			shapeClient = map[string]interface{}{
-				"type":   "circle",
-				"group":  shape.Group,
-				"layer":  shape.Layer,
-				"radius": realShape.Radius,
-				"position": &CpVectClient{
-					realShape.Position.X,
-					realShape.Position.Y,
-				},
-			}
-		case *chipmunk.SegmentShape:
-			shapeClient = map[string]interface{}{
-				"type":   "segment",
-				"group":  shape.Group,
-				"layer":  shape.Layer,
-				"radius": realShape.Radius,
-				"a": &CpVectClient{
-					realShape.A.X,
-					realShape.A.Y,
-				},
-				"b": &CpVectClient{
-					realShape.B.X,
-					realShape.B.Y,
-				},
-			}
-		}
-		shapeClients[i] = shapeClient
-	}
-	var cpBodyClient *CpBodyClient
-	pos := body.Position()
-	if body.IsStatic() {
-		cpBodyClient = &CpBodyClient{
-			Shapes: shapeClients,
-		}
-	} else {
-		cpBodyClient = &CpBodyClient{
-			Mass:  body.Mass(),
-			Angle: body.Angle(),
-			Position: &CpVectClient{
-				pos.X,
-				pos.Y,
-			},
-			Shapes: shapeClients,
-		}
-	}
-	return cpBodyClient
 }
 
 func (b *Bio) BioClient() *BioClient {
@@ -712,22 +648,33 @@ type ChatMessageClient struct {
 	Content  string `json:"content"`
 }
 
-func (b *Bio) TeleportBySceneName(name string, x float32, y float32) *Scene {
-	curScene := b.scene
-	targetScene := b.world.FindSceneByName(name)
-	if curScene == nil ||
-		targetScene == nil ||
-		targetScene == curScene {
-		return nil
+func (b *Bio) UseFireBall() {
+	// b.body.Angle()
+	if b.fireBallState == nil || b.fireBallState.isDeleted {
+		b.fireBallState = NewFireBallState(b.skillUser)
 	}
+	if b.fireBallState.isDeleted == false {
+		b.fireBallState.Fire()
+	}
+}
+
+func (b *Bio) TeleportBySceneName(name string, x float32, y float32) (targetScene *Scene) {
+	curScene := b.scene
+	targetScene = b.world.FindSceneByName(name)
+	if curScene == nil ||
+		targetScene == nil {
+		return
+	}
+	if curScene == targetScene {
+		b.SetPosition(x, y)
+		return curScene
+	}
+	b.lastSceneName = curScene.name
+	b.lastId = b.id
 	curScene.Remove(b.SceneObjecter())
-	b.body.SetPosition(
-		vect.Vect{
-			X: vect.Float(x),
-			Y: vect.Float(y),
-		})
+	b.SetPosition(x, y)
 	targetScene.Add(b.SceneObjecter())
-	return targetScene
+	return
 }
 
 func (b *Bio) TalkScene(content string) {
@@ -743,6 +690,36 @@ func (b *Bio) TalkScene(content string) {
 		},
 	}
 	b.scene.DispatchClientCall(b, clientCall)
+}
+
+func (b *Bio) TakeDamage(d int, attacker Bioer) {
+	if b.IsDied() {
+		return
+	}
+	b.hp -= d
+	if b.hp < 0 {
+		b.hp = 0
+	}
+	clientCall := &ClientCall{
+		Receiver: "bio",
+		Method:   "handleUpdateBioConfig",
+		Params: []interface{}{
+			b.id,
+			map[string]int{
+				"hp": b.hp,
+			},
+		},
+	}
+	b.clientCallPublisher.PublishClientCall(clientCall)
+	if b.hp == 0 {
+		b.lastId = b.id
+		b.lastSceneName = b.scene.name
+		scene := b.scene
+		scene.Remove(b)
+		if b.OnBeKilled != nil {
+			b.OnBeKilled(attacker)
+		}
+	}
 }
 
 func (b *Bio) ItemQuickHeal(n int, effectId int) bool {
@@ -779,7 +756,17 @@ func (b *Bio) ItemQuickHeal(n int, effectId int) bool {
 }
 
 func (b *Bio) ViewAOIUpdate(delta float32) {
+	if b.viewAOIState == nil {
+		return
+	}
 	b.viewAOIState.body.SetPosition(b.body.Position())
+}
+
+func (b *Bio) FireBallUpdate(delta float32) {
+	if b.fireBallState == nil {
+		return
+	}
+	b.fireBallState.Update(delta)
 }
 
 func (v *ViewAOIState) CollisionEnter(arbiter *chipmunk.Arbiter) bool {
@@ -797,7 +784,7 @@ func (v *ViewAOIState) CollisionEnter(arbiter *chipmunk.Arbiter) bool {
 			v.OnSceneObjectEnter(sb)
 		}
 	}
-	return true
+	return false
 }
 
 func (v *ViewAOIState) CollisionExit(arbiter *chipmunk.Arbiter) {
@@ -818,7 +805,7 @@ func (v *ViewAOIState) CollisionExit(arbiter *chipmunk.Arbiter) {
 }
 
 func (v *ViewAOIState) CollisionPreSolve(arbiter *chipmunk.Arbiter) bool {
-	return true
+	return false
 }
 
 func (v *ViewAOIState) CollisionPostSolve(arbiter *chipmunk.Arbiter) {}

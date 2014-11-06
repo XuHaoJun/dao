@@ -30,6 +30,8 @@ type CharClientCall interface {
 	BuyItemFromOpeningShop(sellIndex int)
 	SellItemToOpeningShop(baseId int, slotIndex int)
 	CancelOpeningShop()
+	// skill
+	UseFireBall()
 }
 
 type Charer interface {
@@ -39,7 +41,8 @@ type Charer interface {
 	Logout()
 	OnReceiveClientCall(sender ClientCallPublisher, c *ClientCall)
 	Save()
-	SendMsg(interface{})
+	SendClientCall(msg *ClientCall)
+	SendClientCalls(msg []*ClientCall)
 	CharClientCall() CharClientCall
 	CharClient() *CharClient
 	CharClientBasic() *CharClientBasic
@@ -51,17 +54,17 @@ type Charer interface {
 
 type Char struct {
 	*Bio
-	bsonId      bson.ObjectId
-	usingEquips UsingEquips
-	items       *Items // may be rename to inventory
-	world       *World
-	account     *Account
-	slotIndex   int
-	isOnline    bool
-	sock        *wsConn
-	lastScene   *SceneInfo
-	saveScene   *SceneInfo
-	dzeny       int
+	bsonId        bson.ObjectId
+	usingEquips   UsingEquips
+	items         *Items // may be rename to inventory
+	world         *World
+	account       *Account
+	slotIndex     int
+	isOnline      bool
+	sock          *wsConn
+	lastSceneInfo *SceneInfo
+	saveSceneInfo *SceneInfo
+	dzeny         int
 	//
 	baseStr int
 	baseVit int
@@ -129,7 +132,7 @@ func (c *Char) DumpDB() *CharDumpDB {
 		Items:       c.items.DumpDB(),
 		UsingEquips: c.usingEquips.DumpDB(),
 		LastScene:   nil,
-		SaveScene:   c.saveScene,
+		SaveScene:   c.saveSceneInfo,
 		BodyViewId:  c.bodyViewId,
 		BodyShape:   &CircleShape{32},
 	}
@@ -146,6 +149,7 @@ func (c *Char) DumpDB() *CharDumpDB {
 }
 
 func (c *Char) TeleportBySceneName(name string, x float32, y float32) (targetScene *Scene) {
+	// server
 	curScene := c.scene
 	targetScene = c.world.FindSceneByName(name)
 	if curScene == nil ||
@@ -162,10 +166,11 @@ func (c *Char) TeleportBySceneName(name string, x float32, y float32) (targetSce
 				"y": y,
 			}},
 		}
-		c.SendMsg(clientCall)
-		return curScene
+		c.SendClientCall(clientCall)
+		return
 	}
-	// server
+	c.lastSceneName = curScene.name
+	c.lastId = c.id
 	curScene.Remove(c.SceneObjecter())
 	c.SetPosition(x, y)
 	targetScene.Add(c.SceneObjecter())
@@ -207,7 +212,7 @@ func (c *Char) TeleportBySceneName(name string, x float32, y float32) (targetSce
 			"y": y,
 		}},
 	}
-	c.SendMsg(clientCalls)
+	c.SendClientCalls(clientCalls)
 	return
 }
 
@@ -231,8 +236,8 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.wis = cDump.Wis
 	c.spi = cDump.Spi
 	c.dzeny = cDump.Dzeny
-	c.lastScene = cDump.LastScene
-	c.saveScene = cDump.SaveScene
+	c.lastSceneInfo = cDump.LastScene
+	c.saveSceneInfo = cDump.SaveScene
 	c.items = cDump.Items.Load()
 	c.UpdateItemsUseSelfItemFunc()
 	c.usingEquips = cDump.UsingEquips.Load()
@@ -250,6 +255,8 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.body.SetVelocity(0, 0)
 	c.body.SetMoment(chipmunk.Inf)
 	c.body.UserData = c
+	c.Bio.skillUser = c
+	c.Bio.clientCallPublisher = c
 	c.viewAOIState.body.SetPosition(c.body.Position())
 	c.CalcAttributes()
 	return c
@@ -266,12 +273,12 @@ func NewChar(name string, acc *Account) *Char {
 		account:     acc,
 		world:       acc.world,
 		sock:        acc.sock,
-		lastScene: &SceneInfo{
+		lastSceneInfo: &SceneInfo{
 			dConfig.CharConfigs.FirstScene.Name,
 			dConfig.CharConfigs.FirstScene.X,
 			dConfig.CharConfigs.FirstScene.Y,
 		},
-		saveScene: &SceneInfo{
+		saveSceneInfo: &SceneInfo{
 			dConfig.CharConfigs.FirstScene.Name,
 			dConfig.CharConfigs.FirstScene.X,
 			dConfig.CharConfigs.FirstScene.Y,
@@ -302,7 +309,23 @@ func NewChar(name string, acc *Account) *Char {
 	c.viewAOIState.OnSceneObjectLeave = c.OnSceneObjectLeaveViewAOIFunc()
 	c.body.UserData = c
 	c.clientCallPublisher = c
+	c.Bio.skillUser = c
 	return c
+}
+
+func (c *Char) UseFireBall() {
+	pos := c.body.Position()
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleSetPosition",
+		Params: []interface{}{map[string]float32{
+			"x": float32(pos.X),
+			"y": float32(pos.Y),
+		}},
+	}
+	c.sock.SendClientCall(clientCall)
+	c.Bio.UseFireBall()
+	c.world.logger.Println(c.name + " use fire ball")
 }
 
 func (c *Char) CalcAttributes() {
@@ -352,9 +375,9 @@ func (c *Char) CharClient() *CharClient {
 	return &CharClient{
 		BioClient:     bClient,
 		SlotIndex:     c.slotIndex,
-		LastSceneName: c.lastScene.Name,
-		LastX:         c.lastScene.X,
-		LastY:         c.lastScene.Y,
+		LastSceneName: c.lastSceneInfo.Name,
+		LastX:         c.lastSceneInfo.X,
+		LastY:         c.lastSceneInfo.Y,
 		Items:         c.items.ItemsClient(),
 		UsingEquips:   c.usingEquips.UsingEquipsClient(),
 		Dzeny:         c.dzeny,
@@ -387,17 +410,17 @@ func (c *Char) Save() {
 
 func (c *Char) Login() {
 	if c.isOnline == true ||
-		c.lastScene == nil ||
-		c.saveScene == nil {
+		c.lastSceneInfo == nil ||
+		c.saveSceneInfo == nil {
 		return
 	}
 	c.isOnline = true
 	var scene *Scene
-	lastScene, foundLast := c.world.scenes[c.lastScene.Name]
+	lastScene, foundLast := c.world.scenes[c.lastSceneInfo.Name]
 	if foundLast == false {
-		saveScene, foundSave := c.world.scenes[c.saveScene.Name]
+		saveScene, foundSave := c.world.scenes[c.saveSceneInfo.Name]
 		if foundSave == false {
-			c.saveScene = &SceneInfo{"daoCity", 0, 0}
+			c.saveSceneInfo = &SceneInfo{"daoCity", 0, 0}
 			scene = c.world.scenes["daoCity"]
 		} else {
 			scene = saveScene
@@ -438,6 +461,10 @@ func (c *Char) Logout() {
 
 func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 	return func(enterSb SceneObjecter) {
+		if enterSb.Scene() != c.scene {
+			c.world.logger.Panicln("Should never look this line!.")
+			return
+		}
 		// TODO
 		// display new sceneobject to client screen
 		// and and mober
@@ -448,7 +475,7 @@ func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 				Method:   "handleAddNpc",
 				Params:   []interface{}{enter.NpcClientBasic()},
 			}
-			c.sock.SendMsg(clientCall)
+			c.sock.SendClientCall(clientCall)
 		case Charer:
 			if enter != c.Charer() {
 				clientCall := &ClientCall{
@@ -456,8 +483,23 @@ func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 					Method:   "handleAddChar",
 					Params:   []interface{}{enter.CharClientBasic()},
 				}
-				c.sock.SendMsg(clientCall)
+				c.sock.SendClientCall(clientCall)
 			}
+		case Mober:
+			clientCall := &ClientCall{
+				Receiver: "scene",
+				Method:   "handleAddMob",
+				Params:   []interface{}{enter.MobClientBasic()},
+			}
+			c.sock.SendClientCall(clientCall)
+		case *FireBallState:
+			c.world.logger.Println("fire ball in view aoi!")
+			clientCall := &ClientCall{
+				Receiver: "scene",
+				Method:   "handleAddFireBall",
+				Params:   []interface{}{enter.Client()},
+			}
+			c.sock.SendClientCall(clientCall)
 		}
 	}
 }
@@ -465,21 +507,37 @@ func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 func (c *Char) OnSceneObjectLeaveViewAOIFunc() func(SceneObjecter) {
 	return func(leaveSb SceneObjecter) {
 		curScene := leaveSb.Scene()
-		if curScene == nil || leaveSb == c.SceneObjecter() {
+		if leaveSb == c.SceneObjecter() {
+			return
+		}
+		scene := curScene
+		id := leaveSb.Id()
+		if leaveSb.LastSceneName() != "" {
+			foundScene := c.world.FindSceneByName(leaveSb.LastSceneName())
+			if foundScene != nil {
+				scene = foundScene
+				id = leaveSb.LastId()
+			}
+		}
+		if scene == nil {
 			return
 		}
 		// remove sceneobject to client screen
 		clientCall := &ClientCall{
 			Receiver: "scene",
 			Method:   "handleRemoveById",
-			Params:   []interface{}{leaveSb.Id(), curScene.name},
+			Params:   []interface{}{id, scene.name},
 		}
-		c.sock.SendMsg(clientCall)
+		c.sock.SendClientCall(clientCall)
 	}
 }
 
-func (c *Char) SendMsg(msg interface{}) {
-	c.sock.SendMsg(msg)
+func (c *Char) SendClientCall(msg *ClientCall) {
+	c.sock.SendClientCall(msg)
+}
+
+func (c *Char) SendClientCalls(msg []*ClientCall) {
+	c.sock.SendClientCalls(msg)
 }
 
 func (c *Char) Bioer() Bioer {
@@ -498,6 +556,9 @@ func (c *Char) SceneObjecter() SceneObjecter {
 // will add timeStamp for better.
 // it dispatch from scene
 func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall) {
+	if c.scene == nil {
+		return
+	}
 	//   workaround way: skip self,
 	// should use another way like add timeStap.
 	if cc.Method == "handleMoveStateChange" &&
@@ -506,18 +567,18 @@ func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall
 	}
 	if cc.Method == "handleChatMessage" &&
 		cc.Params[0].(*ChatMessageClient).ChatType != "Local" {
-		c.sock.SendMsg(cc)
+		c.sock.SendClientCall(cc)
 		return
 	}
 	sb, ok := publisher.(SceneObjecter)
 	if !ok {
 		return
 	}
-	switch realSb := sb.(type) {
-	case *Char:
-		_, found := c.viewAOIState.inAreaSceneObjecters[realSb]
+	switch sb.(type) {
+	case Bioer:
+		_, found := c.viewAOIState.inAreaSceneObjecters[sb]
 		if found {
-			c.sock.SendMsg(cc)
+			c.sock.SendClientCall(cc)
 			return
 		}
 	default:
@@ -526,6 +587,9 @@ func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall
 }
 
 func (c *Char) PublishClientCall(cc *ClientCall) {
+	if c.scene == nil {
+		return
+	}
 	c.scene.DispatchClientCall(c, cc)
 }
 
@@ -579,7 +643,7 @@ func (c *Char) EquipBySlot(slot int) {
 		Method:   "handleUpdateUsingEquips",
 		Params:   []interface{}{usingEquipsClientUpdate},
 	}
-	c.sock.SendMsg(clientCalls)
+	c.sock.SendClientCalls(clientCalls)
 }
 
 func (c *Char) UnequipBySlot(slot int) {
@@ -630,7 +694,7 @@ EachEq:
 		Method:   "handleUpdateUsingEquips",
 		Params:   []interface{}{usingEquipsClientUpdate},
 	}
-	c.sock.SendMsg(clientCalls)
+	c.sock.SendClientCalls(clientCalls)
 }
 
 func (c *Char) UpdateClientItems() {
@@ -654,7 +718,7 @@ func (c *Char) TalkNpcById(nid int) {
 		Method:   "handleNpcTalkBox",
 		Params:   []interface{}{npc.FirstNpcTalkClient()},
 	}
-	c.SendMsg(clientCall)
+	c.SendClientCall(clientCall)
 }
 
 // FIXME
@@ -686,7 +750,7 @@ func (c *Char) CancelTalkingNpc() {
 		Method:   "handleNpcTalkBox",
 		Params:   []interface{}{nil},
 	}
-	c.SendMsg(clientCall)
+	c.SendClientCall(clientCall)
 }
 
 // TODO
@@ -747,7 +811,7 @@ func (c *Char) GetItemByBaseId(baseId int) {
 		Method:   "handleUpdateItems",
 		Params:   []interface{}{itemsClientUpdate},
 	}
-	c.SendMsg(clientCall)
+	c.SendClientCall(clientCall)
 }
 
 func (c *Char) OpenShop(s Shoper) {
@@ -761,7 +825,7 @@ func (c *Char) OpenShop(s Shoper) {
 		Method:   "handleShop",
 		Params:   []interface{}{shop.ShopClient()},
 	}
-	c.SendMsg(clientCall)
+	c.SendClientCall(clientCall)
 }
 
 func (c *Char) UseItemBySlot(slot int) {
@@ -799,7 +863,7 @@ func (c *Char) UseItemBySlot(slot int) {
 		Method:   "handleUpdateItems",
 		Params:   []interface{}{itemsClientUpdate},
 	}
-	c.SendMsg(clientCall)
+	c.SendClientCall(clientCall)
 }
 
 func (c *Char) BuyItemFromOpeningShop(i int) {
@@ -833,7 +897,7 @@ func (c *Char) BuyItemFromOpeningShop(i int) {
 			map[string]int{"dzeny": c.dzeny},
 		},
 	}
-	c.SendMsg(clientCalls)
+	c.SendClientCalls(clientCalls)
 }
 
 func (c *Char) SellItemToOpeningShop(baseId int, slotIndex int) {
@@ -906,7 +970,7 @@ func (c *Char) SellItemToOpeningShop(baseId int, slotIndex int) {
 			map[string]int{"dzeny": c.dzeny},
 		},
 	}
-	c.SendMsg(clientCalls)
+	c.SendClientCalls(clientCalls)
 }
 
 func (c *Char) CancelOpeningShop() {
@@ -919,7 +983,7 @@ func (c *Char) CancelOpeningShop() {
 		Method:   "handleShop",
 		Params:   []interface{}{nil},
 	}
-	c.SendMsg(clientCall)
+	c.SendClientCall(clientCall)
 }
 
 // func (c *Char) DoAddItem(itemer Itemer) {

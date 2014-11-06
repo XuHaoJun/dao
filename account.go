@@ -140,7 +140,7 @@ func (a *Account) LoginChar(charSlot int) {
 			},
 		},
 	}
-	a.sock.SendMsg(clientCalls)
+	a.sock.SendClientCalls(clientCalls)
 }
 
 func (a *Account) Login(sock *wsConn) {
@@ -166,7 +166,7 @@ func (a *Account) CreateChar(name string) {
 			Method:   "handleErrorCreateChar",
 			Params:   []interface{}{"overflow max chars."},
 		}
-		a.sock.SendMsg(clientCall)
+		a.sock.SendClientCall(clientCall)
 		return
 	}
 	queryChar := bson.M{"chars": bson.M{"$elemMatch": bson.M{"name": name}}}
@@ -179,7 +179,7 @@ func (a *Account) CreateChar(name string) {
 			Method:   "handleErrorCreateChar",
 			Params:   []interface{}{"duplicate char name."},
 		}
-		a.sock.SendMsg(clientCall)
+		a.sock.SendClientCall(clientCall)
 	} else if err == mgo.ErrNotFound {
 		char := NewChar(name, a)
 		char.slotIndex = len(a.chars)
@@ -198,7 +198,7 @@ func (a *Account) CreateChar(name string) {
 			Method:   "handleSuccessCreateChar",
 			Params:   []interface{}{param},
 		}
-		a.sock.SendMsg(clientCall)
+		a.sock.SendClientCall(clientCall)
 	}
 }
 
@@ -215,6 +215,8 @@ func (a *Account) Logout() {
 		c.isOnline = false
 		c.Save()
 		if c.scene != nil {
+			c.lastId = c.id
+			c.lastSceneName = c.scene.name
 			c.scene.Remove(c)
 		}
 		c.account.world.logger.Println("Char:", c.name, "logouted.")
