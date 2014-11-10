@@ -1,7 +1,6 @@
 package dao
 
 import (
-	"encoding/json"
 	"errors"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
@@ -188,7 +187,7 @@ func (w *World) Run() {
 			}
 			wg.Wait()
 		case params := <-w.ParseClientCall:
-			w.DoParseClientCall(params.Msg, params.Conn)
+			w.DoParseClientCall(params.ClientCall, params.Conn)
 		case expr := <-w.InterpreterEval:
 			w.interpreter.Eval(expr)
 		case acc := <-w.LogoutAccount:
@@ -251,20 +250,12 @@ func (w *World) ShutDownServer() {
 }
 
 type WorldParseClientCall struct {
-	Msg  []byte
-	Conn *wsConn
+	ClientCall *ClientCall
+	Conn       *wsConn
 }
 
-func (w *World) DoParseClientCall(msg []byte, conn *wsConn) {
-	logger := w.logger
+func (w *World) DoParseClientCall(clientCall *ClientCall, conn *wsConn) {
 	acc := conn.account
-	clientCall := &ClientCall{}
-	err := json.Unmarshal(msg, clientCall)
-	if err != nil {
-		logger.Println(conn.ws.RemoteAddr(), ": can't parse to json:", string(msg))
-		return
-	}
-	// logger.Println(conn.ws.RemoteAddr(), "call:", clientCall)
 	switch clientCall.Receiver {
 	case "World":
 		if acc != nil {
@@ -321,8 +312,8 @@ func (w *World) DoParseClientCall(msg []byte, conn *wsConn) {
 	}
 }
 
-func (w *World) RequestParseClientCall(msg []byte, conn *wsConn) {
-	w.ParseClientCall <- &WorldParseClientCall{msg, conn}
+func (w *World) RequestParseClientCall(c *ClientCall, conn *wsConn) {
+	w.ParseClientCall <- &WorldParseClientCall{c, conn}
 }
 
 func (w *World) RemoveAccount(acc *Account) bool {

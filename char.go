@@ -402,12 +402,19 @@ func (c *Char) SetNormalHotKey(index int, itemBaseId int, slotIndex int) {
 	c.hotKeys.Normal[index].SlotIndex = slotIndex
 }
 
+func (c *Char) setSkillHotKey(index int, sid int) {
+	if sid <= 0 {
+		return
+	}
+	c.hotKeys.Skill[index].SkillBaseId = sid
+}
+
 func (c *Char) SetLeftSkillHotKey(sid int) {
-	c.hotKeys.Skill[0].SkillBaseId = sid
+	c.setSkillHotKey(0, sid)
 }
 
 func (c *Char) SetRightSkillHotKey(sid int) {
-	c.hotKeys.Skill[1].SkillBaseId = sid
+	c.setSkillHotKey(1, sid)
 }
 
 func (c *Char) UseFireBall() {
@@ -714,14 +721,14 @@ func (c *Char) EquipBySlot(slot int) {
 	}
 	c.items.equipment[slot] = nil
 	hasEquiped := false
-	etype := 0
+	btype := 0
 	switch e.etype {
 	case Sword:
-		if c.usingEquips.LeftHand() == nil {
-			c.usingEquips.SetLeftHand(e)
+		if c.usingEquips.RightHand() == nil {
+			c.usingEquips.SetRightHand(e)
 			hasEquiped = true
-			etype = LeftHand
-		} else if c.usingEquips.RightHand() == nil {
+			btype = RightHand
+		} else if c.usingEquips.LeftHand() == nil {
 		}
 	}
 	if hasEquiped == false {
@@ -748,7 +755,7 @@ func (c *Char) EquipBySlot(slot int) {
 		Params:   []interface{}{itemsClientUpdate},
 	}
 	usingEquipsClientUpdate := make(map[string]interface{})
-	usingEquipsClientUpdate[strconv.Itoa(etype)] = e.EquipmentClient()
+	usingEquipsClientUpdate[strconv.Itoa(btype)] = e.EquipmentClient()
 	clientCalls[2] = &ClientCall{
 		Receiver: "char",
 		Method:   "handleUpdateUsingEquips",

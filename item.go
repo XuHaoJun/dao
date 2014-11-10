@@ -480,6 +480,10 @@ func (ue UsingEquips) SetLeftHand(e *Equipment) {
 	ue[LeftHand] = e
 }
 
+func (ue UsingEquips) SetRightHand(e *Equipment) {
+	ue[RightHand] = e
+}
+
 func (ue UsingEquips) LeftHand() *Equipment {
 	return ue[LeftHand]
 }

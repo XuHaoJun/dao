@@ -121,7 +121,12 @@ func (conn *wsConn) readRun() {
 		if err != nil {
 			break
 		}
-		conn.server.world.RequestParseClientCall(msg, conn)
+		clientCall := &ClientCall{}
+		err = json.Unmarshal(msg, clientCall)
+		if err != nil {
+			continue
+		}
+		conn.server.world.RequestParseClientCall(clientCall, conn)
 	}
 }
 
@@ -180,6 +185,7 @@ func NewServer(readConfig bool) *Server {
 		wsUpgrader: &websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
+			CheckOrigin:     func(r *http.Request) bool { return true },
 		},
 		Quit: make(chan struct{}),
 	}
@@ -220,6 +226,7 @@ func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
 	}
 	ws, err := ds.wsHub.wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
+		log.Println(err)
 		return
 	}
 	conn := NewWsConn(ws, ds.wsHub)
