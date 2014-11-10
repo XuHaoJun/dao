@@ -96,12 +96,6 @@ func (a *Account) LoginChar(charSlot int) {
 	// response client to load char's scene
 	clientCalls := make([]*ClientCall, 5)
 	scene := a.usingChar.scene
-	// FIXME
-	// sceneParam := map[string]interface{}{
-	// 	"name":   scene.name,
-	// 	"width":  600,
-	// 	"height": 600,
-	// }
 	sceneParam := a.usingChar.scene.SceneClient()
 	clientCalls[0] = &ClientCall{
 		Receiver: "world",
@@ -223,6 +217,7 @@ func (a *Account) Logout() {
 	}
 	a.world.RemoveAccount(a)
 	a.sock.Close()
+	a.sock.account = nil
 	a.world.logger.Println("Account:", a.username, "logouted.")
 }
 

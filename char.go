@@ -1,13 +1,12 @@
 package dao
 
 import (
-	"reflect"
-	"strconv"
-
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"reflect"
+	"strconv"
 )
 
 type CharClientCall interface {
@@ -32,6 +31,10 @@ type CharClientCall interface {
 	CancelOpeningShop()
 	// skill
 	UseFireBall()
+	UseSkillByBaseId(sid int)
+	SetLeftSkillHotKey(sid int)
+	SetRightSkillHotKey(sid int)
+	SetNormalHotKey(index int, itemBaseId int, slotIndex int)
 }
 
 type Charer interface {
@@ -50,6 +53,7 @@ type Charer interface {
 	Bioer() Bioer
 	OpenShop(s Shoper)
 	CancelOpeningShop()
+	LearnSkillByBaseId(sid int)
 }
 
 type Char struct {
@@ -75,6 +79,9 @@ type Char struct {
 	pickRange  *chipmunk.Body
 	//
 	openingShop *Shop
+	//
+	skillBaseIds []int
+	hotKeys      *CharHotKeys
 }
 
 type CharClient struct {
@@ -86,6 +93,8 @@ type CharClient struct {
 	Items         *ItemsClient      `json:"items"`
 	UsingEquips   UsingEquipsClient `json:"usingEquips"`
 	Dzeny         int               `json:"dzeny"`
+	SkillBaseIds  []int             `json:"skillBaseIds"`
+	HotKeys       *CharHotKeys      `json:"hotKeys"`
 }
 
 type CharClientBasic struct {
@@ -93,48 +102,80 @@ type CharClientBasic struct {
 }
 
 type CharDumpDB struct {
-	Id          bson.ObjectId     `bson:"_id"`
-	SlotIndex   int               `bson:"slotIndex"`
-	Name        string            `bson:"name"`
-	Level       int               `bson:"level"`
-	Hp          int               `bson:"hp"`
-	Mp          int               `bson:"mp"`
-	Str         int               `bson:"str"`
-	Vit         int               `bson:"vit"`
-	Wis         int               `bson:"wis"`
-	Spi         int               `bson:"spi"`
-	Dzeny       int               `bson:"dzeny"`
-	LastScene   *SceneInfo        `bson:"lastScene"`
-	SaveScene   *SceneInfo        `bson:"saveScene"`
-	UsingEquips UsingEquipsDumpDB `bson:"usingEquips"`
-	Items       *ItemsDumpDB      `bson:"items"`
-	BodyViewId  int               `bson:"bodyViewId"`
-	BodyShape   *CircleShape      `bson:"bodyShape"`
+	Id           bson.ObjectId     `bson:"_id"`
+	SlotIndex    int               `bson:"slotIndex"`
+	Name         string            `bson:"name"`
+	Level        int               `bson:"level"`
+	Hp           int               `bson:"hp"`
+	Mp           int               `bson:"mp"`
+	Str          int               `bson:"str"`
+	Vit          int               `bson:"vit"`
+	Wis          int               `bson:"wis"`
+	Spi          int               `bson:"spi"`
+	Dzeny        int               `bson:"dzeny"`
+	LastScene    *SceneInfo        `bson:"lastScene"`
+	SaveScene    *SceneInfo        `bson:"saveScene"`
+	UsingEquips  UsingEquipsDumpDB `bson:"usingEquips"`
+	Items        *ItemsDumpDB      `bson:"items"`
+	BodyViewId   int               `bson:"bodyViewId"`
+	BodyShape    *CircleShape      `bson:"bodyShape"`
+	SkillBaseIds []int             `bson:"skillBaseIds"`
+	HotKeys      *CharHotKeys      `bson:"hotKeys"`
 }
 
 type CircleShape struct {
 	Radius float32
 }
 
+type CharNormalHotKey struct {
+	ItemBaseId int `json:"itemBaseId" bson:"itemBaseId"`
+	SlotIndex  int `json:"slotIndex" bson:"slotIndex"`
+}
+
+type CharSkillHotKey struct {
+	SkillBaseId int `json:"skillBaseId" bson:"skillBaseId"`
+}
+
+type CharHotKeys struct {
+	Normal [4]*CharNormalHotKey `json:"normal" bson:"normal"`
+	Skill  [2]*CharSkillHotKey  `json:"skill" bson:"skill"`
+}
+
+func NewCharHotKeys() *CharHotKeys {
+	hotKeys := &CharHotKeys{
+		Normal: [4]*CharNormalHotKey{},
+		Skill:  [2]*CharSkillHotKey{},
+	}
+	for i := 0; i < 4; i++ {
+		hotKeys.Normal[i] = &CharNormalHotKey{-1, -1}
+	}
+	for i := 0; i < 2; i++ {
+		hotKeys.Skill[i] = &CharSkillHotKey{-1}
+	}
+	return hotKeys
+}
+
 func (c *Char) DumpDB() *CharDumpDB {
 	cDump := &CharDumpDB{
-		Id:          c.bsonId,
-		SlotIndex:   c.slotIndex,
-		Name:        c.name,
-		Level:       c.level,
-		Hp:          c.hp,
-		Mp:          c.mp,
-		Str:         c.str,
-		Vit:         c.vit,
-		Wis:         c.wis,
-		Spi:         c.spi,
-		Dzeny:       c.dzeny,
-		Items:       c.items.DumpDB(),
-		UsingEquips: c.usingEquips.DumpDB(),
-		LastScene:   nil,
-		SaveScene:   c.saveSceneInfo,
-		BodyViewId:  c.bodyViewId,
-		BodyShape:   &CircleShape{32},
+		Id:           c.bsonId,
+		SlotIndex:    c.slotIndex,
+		Name:         c.name,
+		Level:        c.level,
+		Hp:           c.hp,
+		Mp:           c.mp,
+		Str:          c.str,
+		Vit:          c.vit,
+		Wis:          c.wis,
+		Spi:          c.spi,
+		Dzeny:        c.dzeny,
+		Items:        c.items.DumpDB(),
+		UsingEquips:  c.usingEquips.DumpDB(),
+		LastScene:    nil,
+		SaveScene:    c.saveSceneInfo,
+		BodyViewId:   c.bodyViewId,
+		BodyShape:    &CircleShape{32},
+		SkillBaseIds: c.skillBaseIds,
+		HotKeys:      c.hotKeys,
 	}
 	if c.scene != nil {
 		cDump.LastScene = &SceneInfo{
@@ -148,12 +189,46 @@ func (c *Char) DumpDB() *CharDumpDB {
 	return cDump
 }
 
+func (c *Char) UseSkillByBaseId(sid int) {
+	if sid <= 0 {
+		return
+	}
+	switch sid {
+	case 1:
+		c.UseFireBall()
+	}
+}
+
+func (c *Char) LearnSkillByBaseId(sid int) {
+	// server
+	if sid <= 0 {
+		return
+	}
+	isLearned := false
+	for _, id := range c.skillBaseIds {
+		if id == sid {
+			isLearned = true
+			break
+		}
+	}
+	if isLearned {
+		return
+	}
+	c.skillBaseIds = append(c.skillBaseIds, sid)
+	// client
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleSkillBaseIds",
+		Params:   []interface{}{c.skillBaseIds},
+	}
+	c.SendClientCall(clientCall)
+}
+
 func (c *Char) TeleportBySceneName(name string, x float32, y float32) (targetScene *Scene) {
 	// server
 	curScene := c.scene
 	targetScene = c.world.FindSceneByName(name)
-	if curScene == nil ||
-		targetScene == nil {
+	if targetScene == nil {
 		return
 	}
 	if curScene == targetScene {
@@ -227,6 +302,7 @@ func (c *Char) UpdateItemsUseSelfItemFunc() {
 
 func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c := NewChar(cDump.Name, acc)
+	c.skillBaseIds = cDump.SkillBaseIds
 	c.slotIndex = cDump.SlotIndex
 	c.bsonId = cDump.Id
 	c.hp = cDump.Hp
@@ -257,8 +333,10 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.body.UserData = c
 	c.Bio.skillUser = c
 	c.Bio.clientCallPublisher = c
+	c.Bio.beKilleder = c
 	c.viewAOIState.body.SetPosition(c.body.Position())
 	c.CalcAttributes()
+	c.hotKeys = cDump.HotKeys
 	return c
 }
 
@@ -283,6 +361,8 @@ func NewChar(name string, acc *Account) *Char {
 			dConfig.CharConfigs.FirstScene.X,
 			dConfig.CharConfigs.FirstScene.Y,
 		},
+		skillBaseIds: []int{},
+		hotKeys:      NewCharHotKeys(),
 	}
 	c.dzeny = acc.world.DaoConfigs().CharConfigs.InitDzeny
 	c.name = name
@@ -310,7 +390,24 @@ func NewChar(name string, acc *Account) *Char {
 	c.body.UserData = c
 	c.clientCallPublisher = c
 	c.Bio.skillUser = c
+	c.Bio.beKilleder = c
 	return c
+}
+
+func (c *Char) SetNormalHotKey(index int, itemBaseId int, slotIndex int) {
+	if index > 4 || itemBaseId <= 0 || slotIndex < 0 {
+		return
+	}
+	c.hotKeys.Normal[index].ItemBaseId = itemBaseId
+	c.hotKeys.Normal[index].SlotIndex = slotIndex
+}
+
+func (c *Char) SetLeftSkillHotKey(sid int) {
+	c.hotKeys.Skill[0].SkillBaseId = sid
+}
+
+func (c *Char) SetRightSkillHotKey(sid int) {
+	c.hotKeys.Skill[1].SkillBaseId = sid
 }
 
 func (c *Char) UseFireBall() {
@@ -381,6 +478,8 @@ func (c *Char) CharClient() *CharClient {
 		Items:         c.items.ItemsClient(),
 		UsingEquips:   c.usingEquips.UsingEquipsClient(),
 		Dzeny:         c.dzeny,
+		SkillBaseIds:  c.skillBaseIds,
+		HotKeys:       c.hotKeys,
 	}
 }
 
@@ -436,11 +535,21 @@ func (c *Char) Login() {
 func (c *Char) OnKillFunc() func(target Bioer) {
 	return func(target Bioer) {
 		// for quest check or add zeny when kill
-		mob, ok := target.(*Mob)
+		mob, ok := target.(Mober)
 		if !ok {
 			return
 		}
-		c.dzeny += mob.Level() * 10
+		c.dzeny += mob.Level() * 100
+		clientCall := &ClientCall{
+			Receiver: "char",
+			Method:   "handleUpdateConfig",
+			Params: []interface{}{
+				struct {
+					Dzeny int `json:"dzeny"`
+				}{c.dzeny},
+			},
+		}
+		c.SendClientCall(clientCall)
 	}
 }
 
@@ -462,7 +571,6 @@ func (c *Char) Logout() {
 func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 	return func(enterSb SceneObjecter) {
 		if enterSb.Scene() != c.scene {
-			c.world.logger.Panicln("Should never look this line!.")
 			return
 		}
 		// TODO
@@ -493,7 +601,7 @@ func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 			}
 			c.sock.SendClientCall(clientCall)
 		case *FireBallState:
-			c.world.logger.Println("fire ball in view aoi!")
+			// c.world.logger.Println("fire ball in view aoi!")
 			clientCall := &ClientCall{
 				Receiver: "scene",
 				Method:   "handleAddFireBall",
@@ -520,6 +628,9 @@ func (c *Char) OnSceneObjectLeaveViewAOIFunc() func(SceneObjecter) {
 			}
 		}
 		if scene == nil {
+			return
+		}
+		if c.scene != nil && c.scene.name != scene.name {
 			return
 		}
 		// remove sceneobject to client screen
@@ -847,13 +958,15 @@ func (c *Char) UseItemBySlot(slot int) {
 		c.items.useSelfItem[slot] = nil
 	}
 	// client update
-	putedSlot := slot
+	putedSlot := strconv.Itoa(slot)
 	itemsUpdate := make(map[string]interface{})
 	iType := uitem.ItemTypeByBaseId()
 	if uitem.stackCount < 0 {
-		itemsUpdate[strconv.Itoa(putedSlot)] = nil
+		itemsUpdate[putedSlot] = nil
 	} else {
-		itemsUpdate[strconv.Itoa(putedSlot)] = uitem.Client()
+		itemsUpdate[putedSlot] = map[string]int{
+			"stackCount": uitem.stackCount + 1,
+		}
 	}
 	itemsClientUpdate := map[string]interface{}{
 		iType: itemsUpdate,
@@ -861,7 +974,7 @@ func (c *Char) UseItemBySlot(slot int) {
 	clientCall := &ClientCall{
 		Receiver: "char",
 		Method:   "handleUpdateItems",
-		Params:   []interface{}{itemsClientUpdate},
+		Params:   []interface{}{itemsClientUpdate, true},
 	}
 	c.SendClientCall(clientCall)
 }
@@ -984,6 +1097,89 @@ func (c *Char) CancelOpeningShop() {
 		Params:   []interface{}{nil},
 	}
 	c.SendClientCall(clientCall)
+}
+
+func (c *Char) TakeDamage(d int, attacker Bioer) {
+	c.Bio.TakeDamage(d, attacker)
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params: []interface{}{map[string]int{
+			"hp":    c.hp,
+			"mp":    c.mp,
+			"maxHp": c.maxHp,
+			"maxSp": c.maxMp,
+		}},
+	}
+	c.SendClientCall(clientCall)
+	if !c.IsDied() {
+		return
+	}
+	c.world.BioReborn <- c.Bioer()
+	clientCalls := make([]*ClientCall, 2)
+	clientCalls[0] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleLeaveScene",
+		Params:   []interface{}{},
+	}
+	clientCalls[1] = &ClientCall{
+		Receiver: "world",
+		Method:   "handleDestroyScene",
+		Params:   []interface{}{c.lastSceneName},
+	}
+	c.SendClientCalls(clientCalls)
+}
+
+func (c *Char) Reborn() {
+	scene := c.world.FindSceneByName(c.saveSceneInfo.Name)
+	if scene == nil || c.scene != nil {
+		return
+	}
+	c.hp = c.maxHp
+	c.SetPosition(c.saveSceneInfo.X, c.saveSceneInfo.Y)
+	scene.Add(c.SceneObjecter())
+	// client
+	clientCalls := make([]*ClientCall, 5)
+	sceneParam := scene.SceneClient()
+	clientCalls[0] = &ClientCall{
+		Receiver: "world",
+		Method:   "handleAddScene",
+		Params:   []interface{}{sceneParam},
+	}
+	clientCalls[1] = &ClientCall{
+		Receiver: "world",
+		Method:   "handleRunScene",
+		Params:   []interface{}{scene.name},
+	}
+	char := c
+	charParam := map[string]interface{}{
+		"sceneName": scene.name,
+		"id":        char.id,
+	}
+	clientCalls[2] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleSetPosition",
+		Params: []interface{}{map[string]float32{
+			"x": c.saveSceneInfo.X,
+			"y": c.saveSceneInfo.Y,
+		}},
+	}
+	clientCalls[3] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleJoinScene",
+		Params:   []interface{}{charParam},
+	}
+	clientCalls[4] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params: []interface{}{map[string]int{
+			"hp":    c.hp,
+			"mp":    c.mp,
+			"maxHp": c.maxHp,
+			"maxSp": c.maxMp,
+		}},
+	}
+	c.SendClientCalls(clientCalls)
 }
 
 // func (c *Char) DoAddItem(itemer Itemer) {

@@ -28,7 +28,7 @@ type World struct {
 	//
 	SceneObjecterChangeScene chan *ChangeScene
 	//
-	MobReborn chan *Mob
+	BioReborn chan Bioer
 	//
 	// AccountLoginChar  chan *AccountLoginChar
 	// AccountCreateChar chan *AccountCreateChar
@@ -87,10 +87,10 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		SceneObjecterChangeScene: make(chan *ChangeScene, 256),
 		ParseClientCall:          make(chan *WorldParseClientCall, 10240),
 		InterpreterEval:          make(chan string, 256),
-		MobReborn:                make(chan *Mob, 1024),
+		BioReborn:                make(chan Bioer, 10240),
 		//
-		delta:    1.0 / 20.0,
-		timeStep: (1.0 * time.Second / 20.0),
+		delta:    1.0 / 60.0,
+		timeStep: (1.0 * time.Second / 60.0),
 		//
 		Quit: make(chan struct{}),
 		//
@@ -113,7 +113,7 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 	// mobs
 	var foundScene *Scene
 	paul := NewMobByBaseId(w, 1)
-	paul.SetPosition(100, 100)
+	paul.SetPosition(350, 350)
 	foundScene = w.FindSceneByName(paul.initSceneName)
 	if foundScene != nil {
 		foundScene.Add(paul.SceneObjecter())
@@ -205,8 +205,8 @@ func (w *World) Run() {
 				sb.Scene().Remove(sb)
 				scene.Add(sb)
 			}
-		case mob := <-w.MobReborn:
-			mob.Reborn()
+		case b := <-w.BioReborn:
+			b.Reborn()
 		case <-w.Quit:
 			for _, acc := range w.accounts {
 				acc.Logout()
@@ -488,7 +488,6 @@ func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {
 	} else {
 		iType = "etcItem"
 	}
-	w.logger.Println(iType)
 	eqDump := NewEquipment().DumpDB()
 	useDump := NewUseSelfItem().DumpDB()
 	etcDump := NewEtcItem().DumpDB()
@@ -501,7 +500,6 @@ func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {
 	case "etcItem":
 		err = w.db.items.Find(queryItem).One(etcDump)
 	}
-	w.logger.Println(err)
 	if err == nil {
 	} else if err != nil && err != mgo.ErrNotFound {
 		return
@@ -529,8 +527,9 @@ func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {
 	if item.BuyPrice() != 0 && item.SellPrice() == 0 {
 		item.SetSellPrice(int(float32(item.BuyPrice()) * 0.5))
 	}
-	w.logger.Println(item)
-	w.logger.Println(item.Name())
-	w.logger.Println(item.ItemTypeByBaseId())
 	return
+}
+
+func (w *World) Scenes() map[string]*Scene {
+	return w.scenes
 }

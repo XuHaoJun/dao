@@ -1,7 +1,5 @@
 package dao
 
-import "fmt"
-
 func NewNpcByBaseId(w *World, id int) *Npc {
 	npc := NewNpc(w)
 	npc.baseId = id
@@ -38,7 +36,7 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 		npc.name = "Jack"
 		npc.bodyViewId = 5000
 		npc.shop = &Shop{"Jack's Shop",
-			[]int{1, 5001, 5002, 10001},
+			[]int{1, 5001, 5002, 10001, 5003},
 			npc.Bioer(),
 			npc.world}
 		npcOpt0 := &NpcOption{
@@ -51,11 +49,8 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 				if nextNpcTalk == nil {
 					switch c := b.(type) {
 					case Charer:
-						fmt.Println("isCharer")
 						c.CancelTalkingNpc()
 					default:
-						fmt.Println("isBioer")
-						fmt.Println(b)
 						b.CancelTalkingNpc()
 					}
 					return
@@ -64,14 +59,12 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 				tNpcInfo.options = append(tNpcInfo.options, 1)
 				c, isCharer := b.(Charer)
 				if isCharer {
-					fmt.Println("isCharer")
 					clientCall := &ClientCall{
 						Receiver: "char",
 						Method:   "handleNpcTalkBox",
 						Params:   []interface{}{nextNpcTalk.NpcTalkClient()},
 					}
 					c.SendClientCall(clientCall)
-					// c.GetItemByBaseId(1)
 					c.GetItemByBaseId(10001)
 					c.GetItemByBaseId(5001)
 				}
@@ -97,7 +90,6 @@ func NewNpcByBaseId(w *World, id int) *Npc {
 				tNpcInfo.options = append(tNpcInfo.options, 1)
 				c, isCharer := b.(Charer)
 				if isCharer {
-					fmt.Println("isCharer")
 					clientCall := &ClientCall{
 						Receiver: "char",
 						Method:   "handleNpcTalkBox",

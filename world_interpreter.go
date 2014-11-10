@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/robertkrimen/otto"
+	_ "github.com/robertkrimen/otto/underscore"
 	"os"
 	"sync"
 )
@@ -115,10 +116,7 @@ func (wi *WorldInterpreter) ReadRun() {
 			wi.Quit <- struct{}{}
 			return
 		default:
-			input, err := wi.getExpression(reader)
-			if err != nil {
-				wi.world.ShutDownServer()
-			}
+			input, _ := wi.getExpression(reader)
 			wi.world.InterpreterEval <- input
 		}
 	}

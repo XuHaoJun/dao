@@ -26,6 +26,8 @@ type Bioer interface {
 	BioClientAttributes() *BioClientAttributes
 	SceneObjecter() SceneObjecter
 	SetPosition(float32, float32)
+	CpBody() *chipmunk.Body
+	LookAtByBioer(target Bioer)
 	// npc
 	TalkingNpcInfo() *TalkingNpcInfo
 	SetTalkingNpcInfo(*TalkingNpcInfo)
@@ -39,9 +41,13 @@ type Bioer interface {
 	Vit() int
 	Wis() int
 	Hp() int
+	Level() int
 	//
 	IsDied() bool
 	TakeDamage(d int, b Bioer)
+	Reborn()
+	//
+	OnKillFunc() func(target Bioer)
 }
 
 type Bio struct {
@@ -54,6 +60,7 @@ type Bio struct {
 	//
 	clientCallPublisher ClientCallPublisher
 	skillUser           Bioer
+	beKilleder          Bioer
 	//
 	// aoi
 	viewAOIState *ViewAOIState
@@ -168,7 +175,7 @@ type ViewAOIState struct {
 	OnSceneObjectLeave func(sb SceneObjecter)
 }
 
-type InAreaSceneObjecters map[SceneObjecter]struct{}
+// type InAreaSceneObjecters map[SceneObjecter]struct{}
 
 // func (sbs InAreaSceneObjecters) FindBioer(b Bioer) Bioer {
 // 	_, ok := sbs[b.SceneObjecter()]
@@ -204,7 +211,7 @@ type MoveState struct {
 type MoveStateClient struct {
 	Running      bool          `json:"running"`
 	TargetPos    *CpVectClient `json:"targetPos"`
-	BaseVelocity *CpVectClient `json:"baseVelocity"`
+	BaseVelocity *CpVectClient `json:"baseVelocity,omitempty"`
 }
 
 func (m *MoveState) MoveStateClient() *MoveStateClient {
@@ -258,7 +265,7 @@ func NewBio(w *World) *Bio {
 		name:  "",
 		moveState: &MoveState{
 			running:      false,
-			baseVelocity: vect.Vect{X: 74, Y: 74},
+			baseVelocity: vect.Vect{X: 90, Y: 90},
 		},
 		str: 1,
 		vit: 1,
@@ -274,6 +281,8 @@ func NewBio(w *World) *Bio {
 	bio.viewAOIState = NewBioViewAOIState(1000, bio)
 	bio.clientCallPublisher = bio.ClientCallPublisher()
 	bio.skillUser = bio.Bioer()
+	bio.beKilleder = bio.Bioer()
+	bio.fireBallState = NewFireBallState(bio.skillUser)
 	return bio
 }
 
@@ -311,6 +320,15 @@ func (b *Bio) SetPosition(x float32, y float32) {
 			vect.Vect{X: vect.Float(x),
 				Y: vect.Float(y)})
 	}
+}
+
+func (b *Bio) CpBody() *chipmunk.Body {
+	return b.SceneObject.body
+}
+
+func (b *Bio) LookAtByBioer(target Bioer) {
+	cpBody := target.CpBody()
+	b.SceneObject.body.LookAt(cpBody.Position())
 }
 
 func (b *Bio) OnBeAddedToScene(s *Scene) {
@@ -351,6 +369,9 @@ func (b *Bio) Bioer() Bioer {
 }
 
 func (b *Bio) Move(x, y float32) {
+	if b.IsDied() {
+		return
+	}
 	b.moveState.running = true
 	b.moveState.targetPos = vect.Vect{
 		X: vect.Float(x),
@@ -488,6 +509,10 @@ func (b *Bio) PublishClientCall(c *ClientCall) {
 	b.scene.DispatchClientCall(b, c)
 }
 
+func (b *Bio) Level() int {
+	return b.level
+}
+
 func (b *Bio) Hp() int {
 	return b.hp
 }
@@ -564,10 +589,6 @@ func (b *Bio) DecMp(n int) {
 	} else {
 		b.mp = tmpMp
 	}
-}
-
-func (b *Bio) Level() int {
-	return b.level
 }
 
 func (b *Bio) IsDied() bool {
@@ -649,13 +670,14 @@ type ChatMessageClient struct {
 }
 
 func (b *Bio) UseFireBall() {
-	// b.body.Angle()
-	if b.fireBallState == nil || b.fireBallState.isDeleted {
-		b.fireBallState = NewFireBallState(b.skillUser)
+	if b.IsDied() || b.scene == nil {
+		return
 	}
-	if b.fireBallState.isDeleted == false {
-		b.fireBallState.Fire()
-	}
+	b.fireBallState.Fire()
+}
+
+func (b *Bio) Reborn() {
+	return
 }
 
 func (b *Bio) TeleportBySceneName(name string, x float32, y float32) (targetScene *Scene) {
@@ -693,6 +715,7 @@ func (b *Bio) TalkScene(content string) {
 }
 
 func (b *Bio) TakeDamage(d int, attacker Bioer) {
+	// server
 	if b.IsDied() {
 		return
 	}
@@ -700,6 +723,7 @@ func (b *Bio) TakeDamage(d int, attacker Bioer) {
 	if b.hp < 0 {
 		b.hp = 0
 	}
+	//client update
 	clientCall := &ClientCall{
 		Receiver: "bio",
 		Method:   "handleUpdateBioConfig",
@@ -719,7 +743,15 @@ func (b *Bio) TakeDamage(d int, attacker Bioer) {
 		if b.OnBeKilled != nil {
 			b.OnBeKilled(attacker)
 		}
+		onkill := attacker.OnKillFunc()
+		if onkill != nil {
+			onkill(b.beKilleder)
+		}
 	}
+}
+
+func (b *Bio) OnKillFunc() func(target Bioer) {
+	return b.OnKill
 }
 
 func (b *Bio) ItemQuickHeal(n int, effectId int) bool {

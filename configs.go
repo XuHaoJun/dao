@@ -1,52 +1,53 @@
 package dao
 
 import (
-	"encoding/json"
+	"gopkg.in/yaml.v2"
 	"io/ioutil"
+	"log"
 	"sync"
 )
 
 type EtcItemConfigs struct {
-	MaxStackCount int `json:"maxStackCount"`
+	MaxStackCount int `yaml:"maxStackCount"`
 }
 
 type UseSelfItemConfigs struct {
-	MaxStackCount int `json:"maxStackCount"`
+	MaxStackCount int `yaml:"maxStackCount"`
 }
 
 type ItemConfigs struct {
-	EtcItemConfigs     *EtcItemConfigs     `json:"etcItem"`
-	UseSelfItemConfigs *UseSelfItemConfigs `json:"useSelfItem"`
+	EtcItemConfigs     *EtcItemConfigs     `yaml:"etcItem"`
+	UseSelfItemConfigs *UseSelfItemConfigs `yaml:"useSelfItem"`
 }
 
 type CharFirstScene struct {
-	Name string  `json:"name"`
-	X    float32 `json:"x"`
-	Y    float32 `json:"y"`
+	Name string  `yaml:"name"`
+	X    float32 `yaml:"x"`
+	Y    float32 `yaml:"y"`
 }
 
 type CharConfigs struct {
-	InitDzeny    int      `json:"initDzeny"`
-	InitItems    [][2]int `json:"initItems"`
-	MaxCharItems int      `json:"maxCharItems"`
-	FirstScene   *CharFirstScene
+	InitDzeny    int             `yaml:"initDzeny"`
+	InitItems    [][]int         `yaml:"initItems"`
+	MaxCharItems int             `yaml:"maxCharItems"`
+	FirstScene   *CharFirstScene `yaml:"firstScene"`
 }
 
 type AccountConfigs struct {
-	MaxChars int `json:"maxChars"`
+	MaxChars int `yaml:"maxChars"`
 }
 
 type MongoDBConfigs struct {
-	URL    string `json:"url"`
-	DBName string `json:"dbName"`
+	URL    string `yaml:"url"`
+	DBName string `yaml:"dbName"`
 }
 
 type WorldConfigs struct {
-	Name string `json:"name"`
+	Name string `yaml:"name"`
 }
 
 type ServerConfigs struct {
-	HttpPort int `json:"httpPort"`
+	HttpPort int `yaml:"httpPort"`
 }
 
 type DaoConfigs struct {
@@ -93,12 +94,12 @@ func NewDefaultDaoConfigs() *DaoConfigs {
 		},
 	}
 	pathMapping := map[string]interface{}{
-		"./conf/char.json":    dc.CharConfigs,
-		"./conf/account.json": dc.AccountConfigs,
-		"./conf/world.json":   dc.WorldConfigs,
-		"./conf/mongodb.json": dc.MongoDBConfigs,
-		"./conf/server.json":  dc.ServerConfigs,
-		"./conf/item.json":    dc.ItemConfigs,
+		"./conf/char.yaml":    dc.CharConfigs,
+		"./conf/account.yaml": dc.AccountConfigs,
+		"./conf/world.yaml":   dc.WorldConfigs,
+		"./conf/mongodb.yaml": dc.MongoDBConfigs,
+		"./conf/server.yaml":  dc.ServerConfigs,
+		"./conf/item.yaml":    dc.ItemConfigs,
 	}
 	dc.pathMapping = pathMapping
 	return dc
@@ -120,7 +121,10 @@ func (dc *DaoConfigs) ReloadConfigFiles() {
 				wg.Done()
 				return
 			}
-			json.Unmarshal(file, config)
+			err := yaml.Unmarshal(file, config)
+			if err != nil {
+				log.Println("parse config file error: ", fileName, err)
+			}
 			wg.Done()
 		}(fname, cg)
 	}

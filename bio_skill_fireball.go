@@ -10,6 +10,7 @@ import (
 
 type FireBallState struct {
 	*SceneObject
+	baseId             int
 	level              int
 	inSceneDuration    time.Duration
 	autoRemoveDuration time.Duration
@@ -17,21 +18,22 @@ type FireBallState struct {
 	hitCount           int
 	maxHitCount        int
 	bodyViewId         int
-	isDeleted          bool
-	// baseVelocity       vect.Vect
-	baseSpeed vect.Float
+	iconViewId         int
+	baseSpeed          vect.Float
+	isFired            bool
 }
 
 type FireBallStateClient struct {
 	Id         int           `json:"id"`
 	CpBody     *CpBodyClient `json:"cpBody"`
 	BodyViewId int           `json:"bodyViewId"`
+	IconViewId int           `json:"iconViewId"`
 }
 
 func NewFireBallState(b Bioer) *FireBallState {
 	fBall := &FireBallState{
-		SceneObject: &SceneObject{},
-		// time
+		SceneObject:        &SceneObject{},
+		baseId:             1,
 		level:              1,
 		inSceneDuration:    0,
 		autoRemoveDuration: time.Second * 3,
@@ -39,9 +41,9 @@ func NewFireBallState(b Bioer) *FireBallState {
 		hitCount:           0,
 		maxHitCount:        1,
 		bodyViewId:         10002,
-		baseSpeed:          90.0,
-		isDeleted:          false,
-		// baseVelocity:       vect.Vect{X: 15, 15},
+		iconViewId:         1,
+		baseSpeed:          100.0,
+		isFired:            false,
 	}
 	circle := chipmunk.NewCircle(vect.Vector_Zero, 6)
 	circle.IsSensor = true
@@ -62,10 +64,17 @@ func (f *FireBallState) Client() interface{} {
 		Id:         f.id,
 		CpBody:     ToCpBodyClient(f.body),
 		BodyViewId: f.bodyViewId,
+		IconViewId: f.iconViewId,
 	}
 }
 
 func (f *FireBallState) Fire() {
+	if f.isFired {
+		return
+	}
+	f.hitCount = 0
+	f.inSceneDuration = 0
+	f.isFired = true
 	body := f.body
 	b := f.owner
 	b.Scene().Add(f.SceneObjecter())
@@ -78,15 +87,14 @@ func (f *FireBallState) Fire() {
 	body.SetPosition(bPos)
 	impulse := vect.Vect{X: dx, Y: dy}
 	impulse.Mult(f.baseSpeed)
-	logger := b.World().logger
-	logger.Println("impulse: ", impulse)
+	// logger := b.World().logger
+	// logger.Println("impulse: ", impulse)
 	// body.AddForce(float32(impulse.X), float32(impulse.Y))
 	body.SetVelocity(float32(impulse.X), float32(impulse.Y))
 }
 
-func (f *FireBallState) IsInScene() bool {
-	return !(f.hitCount >= f.maxHitCount) &&
-		!(f.inSceneDuration >= f.autoRemoveDuration)
+func (f *FireBallState) CanUse() bool {
+	return !f.isFired
 }
 
 func (f *FireBallState) Body() *chipmunk.Body {
@@ -94,7 +102,7 @@ func (f *FireBallState) Body() *chipmunk.Body {
 }
 
 func (f *FireBallState) Update(delta float32) {
-	if f.isDeleted {
+	if !f.isFired {
 		return
 	}
 	if f.hitCount >= f.maxHitCount || f.inSceneDuration >= f.autoRemoveDuration {
@@ -102,7 +110,8 @@ func (f *FireBallState) Update(delta float32) {
 		f.lastId = f.id
 		f.lastSceneName = scene.name
 		scene.Remove(f.SceneObjecter())
-		f.isDeleted = true
+		f.isFired = false
+		return
 	}
 	// logger := f.owner.World().logger
 	// logger.Println("fire ball pos: ", f.body.Position())

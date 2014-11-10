@@ -7,7 +7,6 @@ import (
 
 type Mober interface {
 	Bioer
-	Reborn()
 	MobClientBasic() *MobClientBasic
 }
 
@@ -31,6 +30,8 @@ type Mob struct {
 	initSceneName string
 	// reborn
 	reborn *MobRebornState
+	//
+	aiUpdate func(delta float32)
 }
 
 func NewMob(w *World) *Mob {
@@ -41,10 +42,11 @@ func NewMob(w *World) *Mob {
 	}
 	mob.bodyViewId = 10001
 	mob.clientCallPublisher = mob
-	mob.Bio.skillUser = mob
+	mob.Bio.skillUser = mob.Bioer()
 	mob.body.UserData = mob
 	mob.viewAOIState = NewBioViewAOIState(200, mob.Bio)
 	mob.OnBeKilled = mob.OnBeKilledFunc()
+	mob.Bio.beKilleder = mob.Bioer()
 	return mob
 }
 
@@ -56,7 +58,7 @@ func (m *Mob) OnBeKilledFunc() func(killer Bioer) {
 		go func(w *World, mob *Mob) {
 			select {
 			case <-time.After(m.reborn.delayDuration):
-				w.MobReborn <- mob
+				w.BioReborn <- mob.Bioer()
 			}
 		}(m.world, m)
 	}
@@ -97,4 +99,11 @@ func (m *Mob) MobClientBasic() *MobClientBasic {
 
 func (m *Mob) PublishClientCall(cc *ClientCall) {
 	m.scene.DispatchClientCall(m, cc)
+}
+
+func (m *Mob) AfterUpdate(delta float32) {
+	m.Bio.AfterUpdate(delta)
+	if m.aiUpdate != nil {
+		m.aiUpdate(delta)
+	}
 }

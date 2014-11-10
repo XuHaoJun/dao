@@ -2,7 +2,6 @@ package dao
 
 import (
 	"errors"
-	"fmt"
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
 	"gopkg.in/mgo.v2/bson"
@@ -692,6 +691,11 @@ func (uCall *UseSelfItemCall) FindFunc(item Itemer, bio Bioer) (f reflect.Value)
 		receiver = bio.Scene()
 	case "Item":
 		receiver = item
+	case "Char":
+		char, isChar := bio.(Charer)
+		if isChar {
+			receiver = char
+		}
 	}
 	f = reflect.ValueOf(receiver).MethodByName(uCall.Method)
 	return
@@ -707,13 +711,8 @@ func (uCall *UseSelfItemCall) CastParams(f reflect.Value, item Itemer, bio Bioer
 	}
 	in := make([]reflect.Value, numIn)
 	var ftype reflect.Type
-	fmt.Println("f: ", f)
-	fmt.Println("receiver: ", uCall.Receiver)
-	fmt.Println("method: ", uCall.Method)
 	for i, param := range uCall.Params {
 		ftype = f.Type().In(i)
-		fmt.Println("param type: ", reflect.ValueOf(param).Type())
-		fmt.Println("ftype: ", ftype)
 		switch ftype.Kind() {
 		case reflect.Int:
 			switch param.(type) {
@@ -723,15 +722,11 @@ func (uCall *UseSelfItemCall) CastParams(f reflect.Value, item Itemer, bio Bioer
 				in[i] = reflect.ValueOf(int(param.(float64)))
 			case (bson.M):
 				useSelfItemCallMap := param.(bson.M)
-				fmt.Println("useSelfItemCallMap param type: ",
-					reflect.ValueOf(useSelfItemCallMap["params"]).Type())
 				nextCall := &UseSelfItemCall{
 					Receiver: useSelfItemCallMap["receiver"].(string),
 					Method:   useSelfItemCallMap["method"].(string),
 					Params:   useSelfItemCallMap["params"].([]interface{}),
 				}
-				fmt.Println("nextCall params", nextCall.Params)
-				fmt.Println("nextCall param type: ", reflect.ValueOf(nextCall.Params).Type())
 				nextF := nextCall.FindFunc(item, bio)
 				nextIn, err := nextCall.CastParams(nextF, item, bio)
 				if err != nil {
@@ -746,15 +741,11 @@ func (uCall *UseSelfItemCall) CastParams(f reflect.Value, item Itemer, bio Bioer
 			switch param.(type) {
 			case (bson.M):
 				useSelfItemCallMap := param.(bson.M)
-				fmt.Println("useSelfItemCallMap param type: ",
-					reflect.ValueOf(useSelfItemCallMap["params"]).Type())
 				nextCall := &UseSelfItemCall{
 					Receiver: useSelfItemCallMap["receiver"].(string),
 					Method:   useSelfItemCallMap["method"].(string),
 					Params:   useSelfItemCallMap["params"].([]interface{}),
 				}
-				fmt.Println("nextCall params", nextCall.Params)
-				fmt.Println("nextCall param type: ", reflect.ValueOf(nextCall.Params).Type())
 				nextF := nextCall.FindFunc(item, bio)
 				nextIn, err := nextCall.CastParams(nextF, item, bio)
 				if err != nil {

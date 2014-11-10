@@ -24,17 +24,22 @@ type wsConn struct {
 }
 
 func (conn *wsConn) write(mt int, msg []byte) error {
-	conn.ws.SetWriteDeadline(time.Now().Add(20 * time.Second))
+	conn.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return conn.ws.WriteMessage(mt, msg)
 }
 
 func (conn *wsConn) writeRun() {
-	ticker := time.NewTicker(54 * time.Second)
+	ticker := time.NewTicker(50 * time.Second)
 	defer func() {
 		ticker.Stop()
+		conn.ws.Close()
 	}()
 	for {
 		select {
+		case <-ticker.C:
+			if err := conn.write(websocket.PingMessage, []byte{}); err != nil {
+				return
+			}
 		case msg, ok := <-conn.send:
 			if !ok {
 				conn.write(websocket.CloseMessage, []byte{})
@@ -65,10 +70,6 @@ func (conn *wsConn) writeRun() {
 				continue
 			}
 			if err := conn.write(websocket.TextMessage, msg); err != nil {
-				return
-			}
-		case <-ticker.C:
-			if err := conn.write(websocket.PingMessage, []byte{}); err != nil {
 				return
 			}
 		}
@@ -108,7 +109,7 @@ func (conn *wsConn) readRun() {
 	defer func() {
 		conn.hub.unregister <- conn
 	}()
-	conn.ws.SetReadLimit(10240)
+	conn.ws.SetReadLimit(20480)
 	conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 	pongFunc := func(string) error {
 		conn.ws.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -118,7 +119,7 @@ func (conn *wsConn) readRun() {
 	for {
 		_, msg, err := conn.ws.ReadMessage()
 		if err != nil {
-			return
+			break
 		}
 		conn.server.world.RequestParseClientCall(msg, conn)
 	}
@@ -126,6 +127,7 @@ func (conn *wsConn) readRun() {
 
 type WsHub struct {
 	server      *Server
+	wsUpgrader  *websocket.Upgrader
 	connections map[*wsConn]struct{}
 	register    chan *wsConn
 	unregister  chan *wsConn
@@ -141,6 +143,8 @@ func (hub *WsHub) Run() {
 			delete(hub.connections, conn)
 			if conn.account != nil {
 				conn.account.RequestLogout()
+			} else {
+				conn.ws.Close()
 			}
 		case <-hub.Quit:
 			hub.Quit <- struct{}{}
@@ -173,7 +177,11 @@ func NewServer(readConfig bool) *Server {
 		connections: make(map[*wsConn]struct{}),
 		register:    make(chan *wsConn),
 		unregister:  make(chan *wsConn),
-		Quit:        make(chan struct{}),
+		wsUpgrader: &websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+		},
+		Quit: make(chan struct{}),
 	}
 	ds := &Server{
 		world:   w,
@@ -210,13 +218,8 @@ func serveWs(w http.ResponseWriter, r *http.Request, ds *Server) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:  10240,
-		WriteBufferSize: 10240,
-	}
-	ws, err := upgrader.Upgrade(w, r, nil)
+	ws, err := ds.wsHub.wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println(err)
 		return
 	}
 	conn := NewWsConn(ws, ds.wsHub)
@@ -247,7 +250,7 @@ func (s *Server) RunHTTP() {
 }
 
 func (s *Server) Run() {
-	go s.world.Run()
+	go s.RunHTTP()
 	go s.HandleSignal()
-	s.RunHTTP()
+	s.world.Run()
 }
