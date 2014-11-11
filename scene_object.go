@@ -2,6 +2,7 @@ package dao
 
 import (
 	"github.com/xuhaojun/chipmunk"
+	"time"
 )
 
 type SceneObjecter interface {
@@ -9,6 +10,8 @@ type SceneObjecter interface {
 	SetId(int)
 	Scene() *Scene
 	LastSceneName() string
+	SetLastSceneName(s string)
+	SetLastId(id int)
 	LastId() int
 	SetScene(*Scene)
 	Body() *chipmunk.Body
@@ -17,14 +20,18 @@ type SceneObjecter interface {
 	BeforeUpdate(delta float32)
 	OnBeAddedToScene(s *Scene)
 	OnBeRemovedToScene(s *Scene)
+	SetInSceneDuration(t time.Duration)
+	IncInSceneDuration(t time.Duration)
+	InSceneDuration() time.Duration
 }
 
 type SceneObject struct {
-	id            int
-	scene         *Scene
-	body          *chipmunk.Body
-	lastSceneName string
-	lastId        int
+	id              int
+	scene           *Scene
+	body            *chipmunk.Body
+	lastSceneName   string
+	lastId          int
+	inSceneDuration time.Duration
 }
 
 func NewSceneObject() *SceneObject {
@@ -35,12 +42,32 @@ func (sb *SceneObject) Id() int {
 	return sb.id
 }
 
+func (sb *SceneObject) SetInSceneDuration(t time.Duration) {
+	sb.inSceneDuration = t
+}
+
+func (sb *SceneObject) IncInSceneDuration(t time.Duration) {
+	sb.inSceneDuration += t
+}
+
+func (sb *SceneObject) InSceneDuration() time.Duration {
+	return sb.inSceneDuration
+}
+
 func (sb *SceneObject) SetId(id int) {
 	sb.id = id
 }
 
+func (sb *SceneObject) SetLastId(id int) {
+	sb.lastId = id
+}
+
 func (sb *SceneObject) LastId() int {
 	return sb.lastId
+}
+
+func (sb *SceneObject) SetLastSceneName(s string) {
+	sb.lastSceneName = s
 }
 
 func (sb *SceneObject) LastSceneName() string {

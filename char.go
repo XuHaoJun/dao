@@ -5,8 +5,10 @@ import (
 	"github.com/xuhaojun/chipmunk/vect"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"math/rand"
 	"reflect"
 	"strconv"
+	"time"
 )
 
 type CharClientCall interface {
@@ -18,6 +20,7 @@ type CharClientCall interface {
 	EquipBySlot(slot int)
 	UnequipBySlot(slot int)
 	// use
+	DropItem(id int, slotIndex int)
 	UseItemBySlot(slot int)
 	// NormalAttackByMid(mid int)
 	// PickItemById(id int)
@@ -514,6 +517,44 @@ func (c *Char) Save() {
 	c.saveChar(c.account.world.db.accounts)
 }
 
+func (c *Char) DropItem(id int, slotIndex int) {
+	if id <= 0 || slotIndex < 0 {
+		return
+	}
+	item := c.items.RemoveItem(id, slotIndex)
+	if item == nil || reflect.ValueOf(item).IsNil() {
+		return
+	}
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	body := item.Body()
+	pos := c.body.Position()
+	rX := vect.Float(r.Intn(100))
+	rY := vect.Float(r.Intn(100))
+	if r.Float32() <= 0.5 {
+		rY *= -1
+	}
+	if r.Float32() > 0.5 {
+		rX *= -1
+	}
+	pos.X += vect.Float(rX)
+	pos.Y += vect.Float(rY)
+	body.SetPosition(pos)
+	c.scene.Add(item.SceneObjecter())
+	// client
+	clientCall := &ClientCall{}
+	itemsUpdate := make(map[string]interface{}, 1)
+	itemsUpdate[strconv.Itoa(slotIndex)] = nil
+	itemsClientUpdate := map[string]interface{}{
+		ItemTypeByBaseId(id): itemsUpdate,
+	}
+	clientCall = &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateItems",
+		Params:   []interface{}{itemsClientUpdate},
+	}
+	c.sock.SendClientCall(clientCall)
+}
+
 func (c *Char) Login() {
 	if c.isOnline == true ||
 		c.lastSceneInfo == nil ||
@@ -584,6 +625,13 @@ func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 		// display new sceneobject to client screen
 		// and and mober
 		switch enter := enterSb.(type) {
+		case Itemer:
+			clientCall := &ClientCall{
+				Receiver: "scene",
+				Method:   "handleAddItem",
+				Params:   []interface{}{enter.ItemClient()},
+			}
+			c.sock.SendClientCall(clientCall)
 		case Npcer:
 			clientCall := &ClientCall{
 				Receiver: "scene",

@@ -238,6 +238,13 @@ func (w *World) registerAccount(username string, password string, sock *wsConn) 
 		go w.db.UpdateAccountIndex()
 		// TODO
 		// Update client screen
+		clientParams := []interface{}{"success register a new account!"}
+		clientCall := &ClientCall{
+			Receiver: "world",
+			Method:   "handleSuccessRegisterAccount",
+			Params:   clientParams,
+		}
+		sock.SendClientCall(clientCall)
 	}
 }
 

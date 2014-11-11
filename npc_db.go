@@ -1,6 +1,6 @@
 package dao
 
-func NewNpcByBaseId(w *World, id int) *Npc {
+func NewNpcByBaseId(w *World, id int) Npcer {
 	npc := NewNpc(w)
 	npc.baseId = id
 	switch id {

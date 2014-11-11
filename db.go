@@ -36,7 +36,8 @@ func NewDaoDB(mgourl string, dbname string) (*DaoDB, error) {
 
 func (d *DaoDB) UpdateAccountIndex() {
 	d.updateMutex.Lock()
-	d.accounts.EnsureIndexKey("username")
+	b := d.CloneSession()
+	b.accounts.EnsureIndexKey("username")
 	d.updateMutex.Unlock()
 }
 

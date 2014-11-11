@@ -3,6 +3,7 @@ package dao
 import (
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
+	"time"
 )
 
 type Scene struct {
@@ -21,6 +22,8 @@ type Scene struct {
 	cpSpace *chipmunk.Space
 	//
 	defaultGroundTextureName string
+	//
+	autoClearItemDuration time.Duration
 }
 
 type SceneInfo struct {
@@ -41,6 +44,8 @@ func NewScene(w *World, name string) *Scene {
 		cpSpace:      cpSpace,
 		//
 		defaultGroundTextureName: "grass",
+		//
+		autoClearItemDuration: time.Second * 10,
 	}
 }
 
@@ -104,6 +109,13 @@ func (s *Scene) Update(delta float32) {
 	s.cpSpace.Step(vect.Float(delta))
 	for _, sb := range s.sceneObjects {
 		sb.AfterUpdate(delta)
+		deltaTime := time.Duration(float32(time.Second) * delta)
+		sb.IncInSceneDuration(deltaTime)
+		item, isItem := sb.(Itemer)
+		if isItem &&
+			item.InSceneDuration() >= s.autoClearItemDuration {
+			s.Remove(item.SceneObjecter())
+		}
 	}
 }
 
@@ -180,6 +192,7 @@ func (s *Scene) Add(sb SceneObjecter) {
 	}
 	sb.SetScene(s)
 	sb.SetId(s.idCounter)
+	sb.SetInSceneDuration(time.Duration(0))
 	s.sceneObjects[s.idCounter] = sb
 	s.idCounter = s.idCounter + 1
 	s.cpSpace.AddBody(sb.Body())
@@ -191,7 +204,10 @@ func (s *Scene) Remove(sb SceneObjecter) {
 		return
 	}
 	delete(s.sceneObjects, sb.Id())
+	sb.SetLastId(sb.Id())
+	sb.SetLastSceneName(s.name)
 	sb.SetScene(nil)
+	sb.SetInSceneDuration(time.Duration(0))
 	sb.SetId(-1)
 	oldBody := sb.Body()
 	sb.SetBody(sb.Body().Clone())

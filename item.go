@@ -10,6 +10,7 @@ import (
 
 type Itemer interface {
 	SceneObjecter
+	SceneObjecter() SceneObjecter
 	Name() string
 	SetName(string)
 	AgeisName() string
@@ -24,6 +25,7 @@ type Itemer interface {
 	SetSellPrice(price int)
 	BuyPrice() int
 	ItemTypeByBaseId() string
+	ItemClient() *ItemClient
 	Client() interface{}
 }
 
@@ -86,6 +88,10 @@ type ItemClient struct {
 	SellPrice  int           `json:"sellPrice"`
 }
 
+func (i *Item) SceneObjecter() SceneObjecter {
+	return i
+}
+
 func (i *Item) ItemClient() *ItemClient {
 	return &ItemClient{
 		Id:         i.id,
@@ -101,6 +107,10 @@ func (i *Item) ItemClient() *ItemClient {
 }
 
 func NewItem() *Item {
+	item := &Item{
+		iconViewId: 1,
+		bodyViewId: 3000,
+	}
 	circle := chipmunk.NewCircle(vect.Vector_Zero, 12.0)
 	circle.Group = BioGroup
 	circle.SetFriction(0)
@@ -111,13 +121,11 @@ func NewItem() *Item {
 	body.SetVelocity(0, 0)
 	body.SetPosition(vect.Vector_Zero)
 	body.AddShape(circle)
-	return &Item{
-		SceneObject: &SceneObject{
-			body: body,
-		},
-		iconViewId: 1,
-		bodyViewId: 3000,
+	body.UserData = item
+	item.SceneObject = &SceneObject{
+		body: body,
 	}
+	return item
 }
 
 func (i *Item) BodyViewId() int {
@@ -868,6 +876,34 @@ type Items struct {
 	equipment   []*Equipment
 	etcItem     []*EtcItem
 	useSelfItem []*UseSelfItem
+}
+
+func (is *Items) RemoveItem(baseId int, slotIndex int) Itemer {
+	var item Itemer = nil
+	switch ItemTypeByBaseId(baseId) {
+	case "equipment":
+		item = is.equipment[slotIndex]
+		is.equipment[slotIndex] = nil
+	case "etcItem":
+		item = is.etcItem[slotIndex]
+		is.etcItem[slotIndex] = nil
+	case "useSelfItem":
+		item = is.useSelfItem[slotIndex]
+		is.useSelfItem[slotIndex] = nil
+	}
+	return item
+}
+
+func (is *Items) FindItem(baseId int, slotIndex int) Itemer {
+	switch ItemTypeByBaseId(baseId) {
+	case "equipment":
+		return is.equipment[slotIndex]
+	case "etcItem":
+		return is.etcItem[slotIndex]
+	case "useSelfItem":
+		return is.useSelfItem[slotIndex]
+	}
+	return nil
 }
 
 type ItemsDumpDB struct {
