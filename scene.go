@@ -45,7 +45,7 @@ func NewScene(w *World, name string) *Scene {
 		//
 		defaultGroundTextureName: "grass",
 		//
-		autoClearItemDuration: time.Second * 10,
+		autoClearItemDuration: time.Minute * 5,
 	}
 }
 

@@ -59,12 +59,11 @@ type WorldClientCall interface {
 
 func NewWorldByConfig(dc *DaoConfigs) (w *World, err error) {
 	w, err = NewWorld(dc.WorldConfigs.Name,
-		dc.MongoDBConfigs.URL, dc.MongoDBConfigs.DBName)
-	w.configs = dc
+		dc.MongoDBConfigs.URL, dc.MongoDBConfigs.DBName, dc)
 	return
 }
 
-func NewWorld(name string, mgourl string, dbname string) (*World, error) {
+func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*World, error) {
 	db, err := NewDaoDB(mgourl, dbname)
 	if err != nil {
 		return nil, err
@@ -96,6 +95,9 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 		util:  &Util{},
 		cache: NewCache(),
 	}
+	if configs != nil {
+		w.configs = configs
+	}
 	// scenes
 	daoCity := NewWallScene(w, "daoCity", 2000, 2000)
 	senderNpc := NewNpcByBaseId(w, 1)
@@ -109,6 +111,8 @@ func NewWorld(name string, mgourl string, dbname string) (*World, error) {
 	daoField01 := NewWallScene(w, "daoField01", 6000, 6000)
 	daoField01.defaultGroundTextureName = "dirt"
 	w.scenes["daoField01"] = daoField01
+	// after create scenes
+	w.configs.SceneConfigs.SetScenes(w.scenes)
 	// mobs
 	var foundScene *Scene
 	paul := NewMobByBaseId(w, 1)
@@ -148,6 +152,7 @@ func (w *World) ReloadJsonDB() (err error) {
 func (w *World) ReloadDaoConfigs() (err error) {
 	w.logger.Println("Reloading DaoConfigs")
 	w.configs.ReloadConfigFiles()
+	w.configs.SceneConfigs.SetScenes(w.scenes)
 	w.logger.Println("Reloaded DaoConfigs!")
 	return
 }

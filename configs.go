@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"sync"
+	"time"
 )
 
 type EtcItemConfigs struct {
@@ -46,6 +47,29 @@ type WorldConfigs struct {
 	Name string `yaml:"name"`
 }
 
+type SceneBaseConfig struct {
+	AutoClearItemDuration time.Duration `yaml:"autoClearItemDuration"`
+}
+
+type SceneConfigs struct {
+	Default *SceneBaseConfig            `yaml:"default,omitempty"`
+	Custom  map[string]*SceneBaseConfig `yaml:"custom,omitempty"`
+}
+
+func (conf *SceneConfigs) SetScenes(scenes map[string]*Scene) {
+	for name, scene := range scenes {
+		if conf.Default != nil {
+			scene.autoClearItemDuration = conf.Default.AutoClearItemDuration
+		}
+		if conf.Custom != nil {
+			customConfig, ok := conf.Custom[name]
+			if ok {
+				scene.autoClearItemDuration = customConfig.AutoClearItemDuration
+			}
+		}
+	}
+}
+
 type ServerConfigs struct {
 	HttpPort int `yaml:"httpPort"`
 }
@@ -57,6 +81,7 @@ type DaoConfigs struct {
 	MongoDBConfigs *MongoDBConfigs
 	ServerConfigs  *ServerConfigs
 	ItemConfigs    *ItemConfigs
+	SceneConfigs   *SceneConfigs
 	pathMapping    map[string]interface{}
 }
 
@@ -92,6 +117,12 @@ func NewDefaultDaoConfigs() *DaoConfigs {
 				MaxStackCount: 100,
 			},
 		},
+		SceneConfigs: &SceneConfigs{
+			Default: &SceneBaseConfig{
+				AutoClearItemDuration: 5 * time.Minute,
+			},
+			Custom: make(map[string]*SceneBaseConfig),
+		},
 	}
 	pathMapping := map[string]interface{}{
 		"./conf/char.yaml":    dc.CharConfigs,
@@ -100,6 +131,7 @@ func NewDefaultDaoConfigs() *DaoConfigs {
 		"./conf/mongodb.yaml": dc.MongoDBConfigs,
 		"./conf/server.yaml":  dc.ServerConfigs,
 		"./conf/item.yaml":    dc.ItemConfigs,
+		"./conf/scene.yaml":   dc.SceneConfigs,
 	}
 	dc.pathMapping = pathMapping
 	return dc
@@ -124,6 +156,19 @@ func (dc *DaoConfigs) ReloadConfigFiles() {
 			err := yaml.Unmarshal(file, config)
 			if err != nil {
 				log.Println("parse config file error: ", fileName, err)
+				wg.Done()
+				return
+			}
+			if fileName == "./conf/scene.yaml" {
+				conf := config.(*SceneConfigs)
+				if conf.Default != nil {
+					conf.Default.AutoClearItemDuration *= time.Second
+				}
+				if conf.Custom != nil {
+					for _, c := range conf.Custom {
+						c.AutoClearItemDuration *= time.Second
+					}
+				}
 			}
 			wg.Done()
 		}(fname, cg)

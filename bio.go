@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"fmt"
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
 	"math"
@@ -49,6 +50,8 @@ type Bioer interface {
 	Reborn()
 	//
 	OnKillFunc() func(target Bioer)
+	// imple Stringer
+	String() string
 }
 
 type Bio struct {
@@ -290,6 +293,16 @@ func NewBio(w *World) *Bio {
 
 func (b *Bio) TalkingNpcInfo() *TalkingNpcInfo {
 	return b.talkingNpcInfo
+}
+
+func (b *Bio) String() string {
+	s := fmt.Sprintf("Name: %s\n", b.name)
+	s += fmt.Sprintf("Level: %d\n", b.level)
+	if b.scene != nil {
+		s += "Position: " + b.scene.name + " "
+		s += b.body.Position().String()
+	}
+	return s
 }
 
 func (b *Bio) SetTalkingNpcInfo(tNpc *TalkingNpcInfo) {

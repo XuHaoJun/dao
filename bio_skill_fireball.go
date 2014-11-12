@@ -145,10 +145,9 @@ func (f *FireBallState) OnCollideBioer(b Bioer) {
 	if b == f.owner {
 		return
 	}
-	logger := f.owner.World().logger
 	f.HitTarget(b)
 	f.hitCount += 1
-	logger.Println("hit bio!", b)
+	fmt.Println("hit bio:\n", b)
 }
 
 func (f *FireBallState) CollisionEnter(arbiter *chipmunk.Arbiter) bool {
