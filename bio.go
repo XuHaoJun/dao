@@ -8,6 +8,7 @@ import (
 
 var (
 	BioGroup = chipmunk.Group(1)
+	BioLayer = chipmunk.Layer(1)
 )
 
 type Bioer interface {
@@ -250,6 +251,7 @@ func NewBio(w *World) *Bio {
 	body := chipmunk.NewBody(1, 1)
 	circle := chipmunk.NewCircle(vect.Vector_Zero, float32(32.0))
 	circle.Group = BioGroup
+	circle.Layer = BioLayer
 	circle.SetFriction(0)
 	circle.SetElasticity(0)
 	body.SetPosition(vect.Vector_Zero)

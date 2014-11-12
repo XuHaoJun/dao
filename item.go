@@ -8,6 +8,10 @@ import (
 	"reflect"
 )
 
+var (
+	ItemLayer = chipmunk.Layer(2)
+)
+
 type Itemer interface {
 	SceneObjecter
 	SceneObjecter() SceneObjecter
@@ -113,6 +117,7 @@ func NewItem() *Item {
 	}
 	circle := chipmunk.NewCircle(vect.Vector_Zero, 12.0)
 	circle.Group = BioGroup
+	circle.Layer = ItemLayer
 	circle.SetFriction(0)
 	circle.SetElasticity(0)
 	body := chipmunk.NewBody(1, 1)
@@ -232,16 +237,27 @@ type Equipment struct {
 	equipLimit  *EquipLimit
 }
 
+func (e *Equipment) Itemer() Itemer {
+	return e
+}
+
+func (e *Equipment) SceneObjecter() SceneObjecter {
+	return e
+}
+
 func (e *Equipment) Client() interface{} {
 	return e.EquipmentClient()
 }
 
 func NewEquipment() *Equipment {
-	return &Equipment{
-		Item:       NewItem(),
+	eq := &Equipment{
 		bonusInfo:  &EquipmentBonusInfo{},
 		equipLimit: &EquipLimit{},
 	}
+	item := NewItem()
+	item.body.UserData = eq
+	eq.Item = item
+	return eq
 }
 
 func (e *Equipment) Etype() int {
@@ -591,6 +607,10 @@ func (e *EtcItem) Itemer() Itemer {
 	return e
 }
 
+func (e *EtcItem) SceneObjecter() SceneObjecter {
+	return e
+}
+
 func (e *EtcItem) StackCount() int {
 	return e.stackCount
 }
@@ -600,10 +620,13 @@ func (e *EtcItem) Client() interface{} {
 }
 
 func NewEtcItem() *EtcItem {
-	return &EtcItem{
-		Item:          NewItem(),
+	etc := &EtcItem{
 		maxStackCount: 1024,
 	}
+	item := NewItem()
+	item.body.UserData = etc
+	etc.Item = item
+	return etc
 }
 
 type EtcItemDumpDB struct {
@@ -666,10 +689,16 @@ func (u *UseSelfItem) Client() interface{} {
 	return u.UseSelfItemClient()
 }
 
+func (u *UseSelfItem) SceneObjecter() SceneObjecter {
+	return u
+}
+
 func NewUseSelfItem() *UseSelfItem {
-	return &UseSelfItem{
-		Item: NewItem(),
-	}
+	use := &UseSelfItem{}
+	item := NewItem()
+	item.body.UserData = use
+	use.Item = item
+	return use
 }
 
 type UseSelfItemCall struct {

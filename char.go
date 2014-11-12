@@ -20,7 +20,8 @@ type CharClientCall interface {
 	EquipBySlot(slot int)
 	UnequipBySlot(slot int)
 	// use
-	DropItem(id int, slotIndex int)
+	DropItem(baseId int, slotIndex int)
+	PickItem(sbId int)
 	UseItemBySlot(slot int)
 	// NormalAttackByMid(mid int)
 	// PickItemById(id int)
@@ -98,6 +99,7 @@ type CharClient struct {
 	Dzeny         int               `json:"dzeny"`
 	SkillBaseIds  []int             `json:"skillBaseIds"`
 	HotKeys       *CharHotKeys      `json:"hotKeys"`
+	PickRadius    float32           `json:"pickRadius"`
 }
 
 type CharClientBasic struct {
@@ -324,6 +326,7 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.body = chipmunk.NewBody(1, 1)
 	circle := chipmunk.NewCircle(vect.Vector_Zero, cDump.BodyShape.Radius)
 	circle.Group = BioGroup
+	circle.Layer = BioLayer
 	circle.SetFriction(0)
 	circle.SetElasticity(0)
 	c.body.AddShape(circle)
@@ -366,6 +369,7 @@ func NewChar(name string, acc *Account) *Char {
 		},
 		skillBaseIds: []int{},
 		hotKeys:      NewCharHotKeys(),
+		pickRadius:   111.0,
 	}
 	c.dzeny = acc.world.DaoConfigs().CharConfigs.InitDzeny
 	c.name = name
@@ -381,12 +385,12 @@ func NewChar(name string, acc *Account) *Char {
 	c.CalcAttributes()
 	c.hp = c.maxHp
 	c.mp = c.maxMp
-	c.pickRadius = 42.0
-	c.pickRange = chipmunk.NewBody(1, 1)
-	pickShape := chipmunk.NewCircle(vect.Vector_Zero, c.pickRadius)
-	pickShape.IsSensor = true
-	c.pickRange.IgnoreGravity = true
-	c.pickRange.AddShape(pickShape)
+	// c.pickRadius = 42.0
+	// c.pickRange = chipmunk.NewBody(1, 1)
+	// pickShape := chipmunk.NewCircle(vect.Vector_Zero, c.pickRadius)
+	// pickShape.IsSensor = true
+	// c.pickRange.IgnoreGravity = true
+	// c.pickRange.AddShape(pickShape)
 	c.OnKill = c.OnKillFunc()
 	c.viewAOIState.OnSceneObjectEnter = c.OnSceneObjectEnterViewAOIFunc()
 	c.viewAOIState.OnSceneObjectLeave = c.OnSceneObjectLeaveViewAOIFunc()
@@ -490,6 +494,7 @@ func (c *Char) CharClient() *CharClient {
 		Dzeny:         c.dzeny,
 		SkillBaseIds:  c.skillBaseIds,
 		HotKeys:       c.hotKeys,
+		PickRadius:    c.pickRadius,
 	}
 }
 
@@ -517,6 +522,42 @@ func (c *Char) Save() {
 	c.saveChar(c.account.world.db.accounts)
 }
 
+func (c *Char) PickItem(sbId int) {
+	logger := c.world.logger
+	logger.Println(c.name, " pick by id ", sbId)
+	scene := c.scene
+	if scene == nil {
+		return
+	}
+	item := scene.FindItemerById(sbId)
+	if item == nil || reflect.ValueOf(item).IsNil() {
+		return
+	}
+	charPos := c.body.Position()
+	itemPos := item.Body().Position()
+	dist := vect.Dist(charPos, itemPos)
+	logger.Println("dist: ", dist, "pickRadius", c.pickRadius)
+	if float32(dist) > c.pickRadius {
+		return
+	}
+	scene.Remove(item)
+	_, slotIndex := c.GetItem(item)
+	if slotIndex == -1 {
+		return
+	}
+	itemsUpdate := make(map[string]interface{}, 1)
+	itemsUpdate[strconv.Itoa(slotIndex)] = item.Client()
+	itemsClientUpdate := map[string]interface{}{
+		item.ItemTypeByBaseId(): itemsUpdate,
+	}
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateItems",
+		Params:   []interface{}{itemsClientUpdate},
+	}
+	c.sock.SendClientCall(clientCall)
+}
+
 func (c *Char) DropItem(id int, slotIndex int) {
 	if id <= 0 || slotIndex < 0 {
 		return
@@ -541,13 +582,12 @@ func (c *Char) DropItem(id int, slotIndex int) {
 	body.SetPosition(pos)
 	c.scene.Add(item.SceneObjecter())
 	// client
-	clientCall := &ClientCall{}
 	itemsUpdate := make(map[string]interface{}, 1)
 	itemsUpdate[strconv.Itoa(slotIndex)] = nil
 	itemsClientUpdate := map[string]interface{}{
 		ItemTypeByBaseId(id): itemsUpdate,
 	}
-	clientCall = &ClientCall{
+	clientCall := &ClientCall{
 		Receiver: "char",
 		Method:   "handleUpdateItems",
 		Params:   []interface{}{itemsClientUpdate},
@@ -1282,12 +1322,6 @@ func (c *Char) Reborn() {
 
 // // TODO
 // // func add pick item check func
-
-// func (c *Char) PickItem(item Itemer) {
-// 	c.DoJob(func() {
-// 		c.DoPickItem(item)
-// 	})
-// }
 
 // func (c *Char) PickItemById(id int) {
 // 	c.DoJob(func() {

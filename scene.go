@@ -148,6 +148,17 @@ func (s *Scene) FindNpcById(nid int) *Npc {
 	return nil
 }
 
+func (s *Scene) FindItemerById(nid int) Itemer {
+	if nid < 0 {
+		return nil
+	}
+	itemer, ok := s.sceneObjects[nid].(Itemer)
+	if ok {
+		return itemer
+	}
+	return nil
+}
+
 func (s *Scene) FindNpcerById(nid int) Npcer {
 	npcer, ok := s.sceneObjects[nid].(Npcer)
 	if ok {
