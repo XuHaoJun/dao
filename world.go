@@ -102,25 +102,11 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 	}
 	// scenes
 	daoCity := NewWallScene(w, "daoCity", 2000, 2000)
-	senderNpc := NewNpcByBaseId(w, 1)
-	senderNpc.SetPosition(160, 160)
-	daoCity.Add(senderNpc.SceneObjecter())
-	jackNpc := NewNpcByBaseId(w, 2)
-	jackNpc.SetPosition(300, 100)
-	daoCity.Add(jackNpc.SceneObjecter())
-	w.scenes[daoCity.name] = daoCity
+	w.scenes["daoCity"] = daoCity
 	//
 	daoField01 := NewWallScene(w, "daoField01", 6000, 6000)
 	daoField01.defaultGroundTextureName = "dirt"
 	w.scenes["daoField01"] = daoField01
-	// mobs
-	var foundScene *Scene
-	paul := NewMobByBaseId(w, 1)
-	paul.SetPosition(350, 350)
-	foundScene = w.FindSceneByName(paul.initSceneName)
-	if foundScene != nil {
-		foundScene.Add(paul.SceneObjecter())
-	}
 	// interpreter
 	w.interpreter = NewWorldInterpreter(w)
 	w.Emitter = emission.NewEmitterOtto(w.interpreter.vm)
@@ -136,6 +122,10 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 
 func (w *World) NewMobByBaseId(id int64) Mober {
 	return NewMobByBaseId(w, int(id))
+}
+
+func (w *World) NewNpcByBaseId(id int64) Npcer {
+	return NewNpcByBaseId(w, int(id))
 }
 
 func (w *World) Name() string {
@@ -176,9 +166,7 @@ func (w *World) ReloadScripts() {
 	w.interpreter.LoadScripts()
 	for _, scene := range w.scenes {
 		scene.RemoveAllMober()
-		// TODO
-		// load npcs from script
-		// scene.RemoveAllNpcer()
+		scene.RemoveAllNpcer()
 	}
 	w.Emit("worldLoadScenes", w, w.scenes)
 	w.logger.Println("Reloaded Scripts!")
