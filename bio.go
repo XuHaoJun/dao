@@ -326,6 +326,14 @@ func (b *Bio) ResponseTalkingNpc(optIndex int) {
 	npc.SelectOption(optIndex, b.Bioer())
 }
 
+func (b *Bio) SetPositionInt63(x int64, y int64) {
+	b.SetPosition(float32(x), float32(y))
+}
+
+func (b *Bio) SetPositionFloat63(x float64, y float64) {
+	b.SetPosition(float32(x), float32(y))
+}
+
 func (b *Bio) SetPosition(x float32, y float32) {
 	b.body.SetPosition(
 		vect.Vect{X: vect.Float(x),

@@ -22,6 +22,14 @@ type MobRebornState struct {
 	currentDuration time.Duration
 }
 
+func (m *Mob) InitSceneName() string {
+	return m.initSceneName
+}
+
+func (m *Mob) SetInitSceneName(s string) {
+	m.initSceneName = s
+}
+
 type Mob struct {
 	*Bio
 	baseId          int
@@ -32,6 +40,7 @@ type Mob struct {
 	reborn *MobRebornState
 	//
 	aiUpdate func(delta float32)
+	//
 }
 
 func NewMob(w *World) *Mob {

@@ -2,6 +2,7 @@ package dao
 
 import (
 	"errors"
+	"github.com/xuhaojun/emission-otto"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"log"
@@ -12,6 +13,7 @@ import (
 )
 
 type World struct {
+	*emission.Emitter
 	name     string
 	server   *Server
 	accounts map[string]*Account
@@ -82,9 +84,9 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 		configs:                  NewDefaultDaoConfigs(),
 		logger:                   log.New(os.Stdout, "[dao-"+name+"] ", 0),
 		LogoutAccount:            make(chan *Account, 8),
-		SceneObjecterChangeScene: make(chan *ChangeScene, 256),
+		SceneObjecterChangeScene: make(chan *ChangeScene, 8),
 		ParseClientCall:          make(chan *WorldParseClientCall, 10240),
-		InterpreterEval:          make(chan string, 256),
+		InterpreterEval:          make(chan string, 8),
 		BioReborn:                make(chan Bioer, 10240),
 		//
 		delta:    1.0 / 60.0,
@@ -111,8 +113,6 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 	daoField01 := NewWallScene(w, "daoField01", 6000, 6000)
 	daoField01.defaultGroundTextureName = "dirt"
 	w.scenes["daoField01"] = daoField01
-	// after create scenes
-	w.configs.SceneConfigs.SetScenes(w.scenes)
 	// mobs
 	var foundScene *Scene
 	paul := NewMobByBaseId(w, 1)
@@ -123,7 +123,19 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 	}
 	// interpreter
 	w.interpreter = NewWorldInterpreter(w)
+	w.Emitter = emission.NewEmitterOtto(w.interpreter.vm)
+	err = w.interpreter.LoadScripts()
+	if err != nil {
+		return nil, err
+	}
+	// after create scenes
+	w.configs.SceneConfigs.SetScenes(w.scenes)
+	w.Emit("worldLoadScenes", w, w.scenes)
 	return w, nil
+}
+
+func (w *World) NewMobByBaseId(id int64) Mober {
+	return NewMobByBaseId(w, int(id))
 }
 
 func (w *World) Name() string {
@@ -157,6 +169,21 @@ func (w *World) ReloadDaoConfigs() (err error) {
 	return
 }
 
+func (w *World) ReloadScripts() {
+	w.logger.Println("Reloading Scripts")
+	// w.interpreter.ResetVM()
+	w.Emitter.ResetOttoEvents()
+	w.interpreter.LoadScripts()
+	for _, scene := range w.scenes {
+		scene.RemoveAllMober()
+		// TODO
+		// load npcs from script
+		// scene.RemoveAllNpcer()
+	}
+	w.Emit("worldLoadScenes", w, w.scenes)
+	w.logger.Println("Reloaded Scripts!")
+}
+
 func (w *World) ReloadAll() {
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -169,6 +196,7 @@ func (w *World) ReloadAll() {
 		wg.Done()
 	}()
 	wg.Wait()
+	w.ReloadScripts()
 }
 
 func (w *World) WorldClientCall() WorldClientCall {
@@ -535,4 +563,22 @@ func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {
 
 func (w *World) Scenes() map[string]*Scene {
 	return w.scenes
+}
+
+func (w *World) ScenesSlice() []*Scene {
+	ss := make([]*Scene, len(w.scenes))
+	i := 0
+	for _, s := range w.scenes {
+		ss[i] = s
+		i++
+	}
+	return ss
+}
+
+func (w *World) Accounts() map[string]*Account {
+	return w.accounts
+}
+
+func (w *World) Util() *Util {
+	return w.util
 }

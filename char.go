@@ -58,6 +58,8 @@ type Charer interface {
 	OpenShop(s Shoper)
 	CancelOpeningShop()
 	LearnSkillByBaseId(sid int)
+	SendChatMessage(ch string, talkerName string, content string)
+	ClientChatMessage(ch string, talkerName string, content string) *ClientCall
 }
 
 type Char struct {
@@ -523,8 +525,6 @@ func (c *Char) Save() {
 }
 
 func (c *Char) PickItem(sbId int) {
-	logger := c.world.logger
-	logger.Println(c.name, " pick by id ", sbId)
 	scene := c.scene
 	if scene == nil {
 		return
@@ -536,7 +536,6 @@ func (c *Char) PickItem(sbId int) {
 	charPos := c.body.Position()
 	itemPos := item.Body().Position()
 	dist := vect.Dist(charPos, itemPos)
-	logger.Println("dist: ", dist, "pickRadius", c.pickRadius)
 	if float32(dist) > c.pickRadius {
 		return
 	}
@@ -550,12 +549,40 @@ func (c *Char) PickItem(sbId int) {
 	itemsClientUpdate := map[string]interface{}{
 		item.ItemTypeByBaseId(): itemsUpdate,
 	}
-	clientCall := &ClientCall{
+	clientCalls := make([]*ClientCall, 2)
+	clientCalls[0] = &ClientCall{
 		Receiver: "char",
 		Method:   "handleUpdateItems",
 		Params:   []interface{}{itemsClientUpdate},
 	}
-	c.sock.SendClientCall(clientCall)
+	clientCalls[1] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleSetPosition",
+		Params: []interface{}{map[string]float32{
+			"x": float32(charPos.X),
+			"y": float32(charPos.Y),
+		}},
+	}
+	c.sock.SendClientCalls(clientCalls)
+}
+
+func (c *Char) ClientChatMessage(ch string, talkerName string, content string) *ClientCall {
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleChatMessage",
+		Params: []interface{}{
+			&ChatMessageClient{
+				ch,
+				talkerName,
+				content,
+			},
+		},
+	}
+	return clientCall
+}
+
+func (c *Char) SendChatMessage(ch string, talkerName string, content string) {
+	c.sock.SendClientCall(c.ClientChatMessage(ch, talkerName, content))
 }
 
 func (c *Char) DropItem(id int, slotIndex int) {
@@ -587,12 +614,22 @@ func (c *Char) DropItem(id int, slotIndex int) {
 	itemsClientUpdate := map[string]interface{}{
 		ItemTypeByBaseId(id): itemsUpdate,
 	}
-	clientCall := &ClientCall{
+	clientCalls := make([]*ClientCall, 2)
+	clientCalls[0] = &ClientCall{
 		Receiver: "char",
 		Method:   "handleUpdateItems",
 		Params:   []interface{}{itemsClientUpdate},
 	}
-	c.sock.SendClientCall(clientCall)
+	charPos := c.body.Position()
+	clientCalls[1] = &ClientCall{
+		Receiver: "char",
+		Method:   "handleSetPosition",
+		Params: []interface{}{map[string]float32{
+			"x": float32(charPos.X),
+			"y": float32(charPos.Y),
+		}},
+	}
+	c.sock.SendClientCalls(clientCalls)
 }
 
 func (c *Char) Login() {

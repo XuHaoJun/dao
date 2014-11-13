@@ -67,6 +67,10 @@ func (a *Account) Save() {
 	}
 }
 
+func (a *Account) Username() string {
+	return a.username
+}
+
 func (a *Account) DumpDB() *AccountDumpDB {
 	chars := make([]*CharDumpDB, len(a.chars))
 	for i, char := range a.chars {
@@ -94,7 +98,7 @@ func (a *Account) LoginChar(charSlot int) {
 	a.usingChar.Login()
 	// TODO
 	// response client to load char's scene
-	clientCalls := make([]*ClientCall, 5)
+	clientCalls := make([]*ClientCall, 4)
 	scene := a.usingChar.scene
 	sceneParam := a.usingChar.scene.SceneClient()
 	clientCalls[0] = &ClientCall{
@@ -123,18 +127,9 @@ func (a *Account) LoginChar(charSlot int) {
 		Method:   "handleJoinScene",
 		Params:   []interface{}{charParam},
 	}
-	clientCalls[4] = &ClientCall{
-		Receiver: "char",
-		Method:   "handleChatMessage",
-		Params: []interface{}{
-			&ChatMessageClient{
-				"System",
-				"",
-				"Welcom to Dao!",
-			},
-		},
-	}
+	//
 	a.sock.SendClientCalls(clientCalls)
+	a.world.Emit("accountLoginChar", a, char)
 }
 
 func (a *Account) Login(sock *wsConn) {

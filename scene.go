@@ -59,6 +59,10 @@ type SceneClient struct {
 	DefaultGroundTextureName string `json:"defaultGroundTextureName"`
 }
 
+func (s *Scene) Name() string {
+	return s.name
+}
+
 func (s *Scene) SceneClient() *SceneClient {
 	i := 0
 	cpBodyClients := make([]*CpBodyClient, len(s.staticBodys))
@@ -187,6 +191,40 @@ func (s *Scene) AllBioer() []Bioer {
 		}
 	}
 	return bioers
+}
+
+func (s *Scene) AllNpcer() []Npcer {
+	npcers := make([]Npcer, 0)
+	for _, sb := range s.sceneObjects {
+		npcer, ok := sb.(Npcer)
+		if ok {
+			npcers = append(npcers, npcer)
+		}
+	}
+	return npcers
+}
+
+func (s *Scene) AllMober() []Mober {
+	mobers := make([]Mober, 0)
+	for _, sb := range s.sceneObjects {
+		mober, ok := sb.(Mober)
+		if ok {
+			mobers = append(mobers, mober)
+		}
+	}
+	return mobers
+}
+
+func (s *Scene) RemoveAllMober() {
+	for _, mob := range s.AllMober() {
+		s.Remove(mob.SceneObjecter())
+	}
+}
+
+func (s *Scene) RemoveAllNpcer() {
+	for _, npc := range s.AllNpcer() {
+		s.Remove(npc.SceneObjecter())
+	}
 }
 
 func (s *Scene) AddBody(body *chipmunk.Body) {

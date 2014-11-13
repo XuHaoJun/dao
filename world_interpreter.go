@@ -5,8 +5,13 @@ import (
 	"fmt"
 	"github.com/robertkrimen/otto"
 	_ "github.com/robertkrimen/otto/underscore"
+	"gopkg.in/yaml.v2"
+	"io/ioutil"
+	"math/rand"
 	"os"
+	"strings"
 	"sync"
+	"time"
 )
 
 type WorldInterpreter struct {
@@ -18,14 +23,88 @@ type WorldInterpreter struct {
 
 func NewWorldInterpreter(w *World) *WorldInterpreter {
 	vm := otto.New()
-	vm.Set("w", w)
-	vm.Set("world", w)
+	vm.Set("dao", w)
+	v, _ := vm.ToValue(w.Emitter)
+	vm.Set("RandUnixNanoTimeSeed", func(call otto.FunctionCall) otto.Value {
+		rand.Seed(time.Now().UTC().UnixNano())
+		return otto.UndefinedValue()
+	})
+	vm.Set("On", func(call otto.FunctionCall) otto.Value {
+		event := call.Argument(0)
+		listener := call.Argument(1)
+		e, err := event.Export()
+		if err != nil {
+			return otto.NullValue()
+		}
+		if event.IsString() {
+			e = e.(string)
+		}
+		w.Emitter.On(e, listener)
+		return v
+	})
 	return &WorldInterpreter{
 		world: w,
 		vm:    vm,
 		mutex: &sync.Mutex{},
 		Quit:  make(chan struct{}),
 	}
+}
+
+func (wi *WorldInterpreter) ResetVM() {
+	w := wi.world
+	vm := otto.New()
+	vm.Set("w", w)
+	vm.Set("world", w)
+	v, _ := vm.ToValue(w.Emitter)
+	vm.Set("On", func(call otto.FunctionCall) otto.Value {
+		event := call.Argument(0)
+		listener := call.Argument(1)
+		e, err := event.Export()
+		if err != nil {
+			return otto.NullValue()
+		}
+		if event.IsString() {
+			e = e.(string)
+		}
+		w.Emitter.On(e, listener)
+		return v
+	})
+	wi.vm = vm
+}
+
+func (wi *WorldInterpreter) loadScripts(dir string, name string) error {
+	path := dir + name
+	file, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	config := &ScriptLoadConfigs{}
+	err = yaml.Unmarshal(file, config)
+	if err != nil {
+		return err
+	}
+	for _, script := range config.Scripts {
+		src, err := ioutil.ReadFile(dir + script)
+		if err != nil {
+			return err
+		}
+		wi.vm.Run(src)
+	}
+	for _, imp := range config.Imports {
+		impSpl := strings.SplitAfter(imp, "/")
+		impDir := impSpl[:len(impSpl)-1]
+		impFile := impSpl[len(impSpl)-1]
+		subDir := dir + strings.Join(impDir, "")
+		err := wi.loadScripts(subDir, impFile)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (wi *WorldInterpreter) LoadScripts() error {
+	return wi.loadScripts("./scripts/", "scripts_main.yaml")
 }
 
 func (wi *WorldInterpreter) Printf(format string, a ...interface{}) {

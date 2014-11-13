@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+type ScriptLoadConfigs struct {
+	Imports []string `yaml:"imports,omitempty"`
+	Scripts []string `yaml:"scripts,omitempty"`
+}
+
 type EtcItemConfigs struct {
 	MaxStackCount int `yaml:"maxStackCount"`
 }
