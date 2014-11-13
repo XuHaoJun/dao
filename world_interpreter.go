@@ -15,46 +15,63 @@ import (
 )
 
 type WorldInterpreter struct {
-	world *World
-	mutex *sync.Mutex
-	vm    *otto.Otto
-	Quit  chan struct{}
+	world          *World
+	timers         map[*OttoTimer]*OttoTimer
+	timerReady     chan *OttoTimer
+	mutex          *sync.Mutex
+	vm             *otto.Otto
+	QuitRead       chan struct{}
+	QuitTimerReady chan struct{}
+}
+
+type OttoTimer struct {
+	timer    *time.Timer
+	duration time.Duration
+	interval bool
+	call     otto.FunctionCall
+}
+
+func (wi *WorldInterpreter) NewOttoTimer(call otto.FunctionCall, interval bool) (*OttoTimer, otto.Value) {
+	delay, _ := call.Argument(1).ToInteger()
+	if 0 >= delay {
+		delay = 1
+	}
+
+	timer := &OttoTimer{
+		duration: time.Duration(delay) * time.Millisecond,
+		call:     call,
+		interval: interval,
+	}
+	wi.timers[timer] = timer
+
+	timer.timer = time.AfterFunc(timer.duration, func() {
+		wi.timerReady <- timer
+	})
+
+	value, err := call.Otto.ToValue(timer)
+	if err != nil {
+		panic(err)
+	}
+
+	return timer, value
 }
 
 func NewWorldInterpreter(w *World) *WorldInterpreter {
-	vm := otto.New()
+	wi := &WorldInterpreter{
+		world:          w,
+		vm:             otto.New(),
+		timers:         map[*OttoTimer]*OttoTimer{},
+		timerReady:     make(chan *OttoTimer, 16),
+		mutex:          &sync.Mutex{},
+		QuitRead:       make(chan struct{}),
+		QuitTimerReady: make(chan struct{}),
+	}
+	vm := wi.vm
 	vm.Set("dao", w)
-	v, _ := vm.ToValue(w.Emitter)
 	vm.Set("RandUnixNanoTimeSeed", func(call otto.FunctionCall) otto.Value {
 		rand.Seed(time.Now().UTC().UnixNano())
 		return otto.UndefinedValue()
 	})
-	vm.Set("On", func(call otto.FunctionCall) otto.Value {
-		event := call.Argument(0)
-		listener := call.Argument(1)
-		e, err := event.Export()
-		if err != nil {
-			return otto.NullValue()
-		}
-		if event.IsString() {
-			e = e.(string)
-		}
-		w.Emitter.On(e, listener)
-		return v
-	})
-	return &WorldInterpreter{
-		world: w,
-		vm:    vm,
-		mutex: &sync.Mutex{},
-		Quit:  make(chan struct{}),
-	}
-}
-
-func (wi *WorldInterpreter) ResetVM() {
-	w := wi.world
-	vm := otto.New()
-	vm.Set("w", w)
-	vm.Set("world", w)
 	v, _ := vm.ToValue(w.Emitter)
 	vm.Set("On", func(call otto.FunctionCall) otto.Value {
 		event := call.Argument(0)
@@ -69,7 +86,32 @@ func (wi *WorldInterpreter) ResetVM() {
 		w.Emitter.On(e, listener)
 		return v
 	})
-	wi.vm = vm
+	vm.Set("setTimeout", func(call otto.FunctionCall) otto.Value {
+		_, value := wi.NewOttoTimer(call, false)
+		return value
+	})
+	vm.Set("setInterval", func(call otto.FunctionCall) otto.Value {
+		_, value := wi.NewOttoTimer(call, true)
+		return value
+	})
+	clearTimeout := func(call otto.FunctionCall) otto.Value {
+		timer, _ := call.Argument(0).Export()
+		if timer, ok := timer.(*OttoTimer); ok {
+			timer.timer.Stop()
+			delete(wi.timers, timer)
+		}
+		return otto.UndefinedValue()
+	}
+	vm.Set("clearTimeout", clearTimeout)
+	vm.Set("clearInterval", clearTimeout)
+	return wi
+}
+
+func (wi *WorldInterpreter) RemoveAndStopAllTimer() {
+	for timer, _ := range wi.timers {
+		timer.timer.Stop()
+	}
+	wi.timers = map[*OttoTimer]*OttoTimer{}
 }
 
 func (wi *WorldInterpreter) loadScripts(dir string, name string) error {
@@ -123,7 +165,7 @@ func (wi *WorldInterpreter) VM() *otto.Otto {
 	return wi.vm
 }
 
-func (wi *WorldInterpreter) Eval(expr string) {
+func (wi *WorldInterpreter) REPLEval(expr string) {
 	if expr == " " || expr == "" {
 		wi.Printf("> ")
 		return
@@ -135,6 +177,32 @@ func (wi *WorldInterpreter) Eval(expr string) {
 		wi.Println(value)
 	}
 	wi.Printf("> ")
+}
+
+func (wi *WorldInterpreter) TimerEval(timer *OttoTimer) {
+	var arguments []interface{}
+	if len(timer.call.ArgumentList) > 2 {
+		tmp := timer.call.ArgumentList[2:]
+		arguments = make([]interface{}, 2+len(tmp))
+		for i, value := range tmp {
+			arguments[i+2] = value
+		}
+	} else {
+		arguments = make([]interface{}, 1)
+	}
+	arguments[0] = timer.call.ArgumentList[0]
+	_, err := wi.vm.Call(`Function.call.call`, nil, arguments...)
+	if err != nil {
+		for _, timer := range wi.timers {
+			timer.timer.Stop()
+			delete(wi.timers, timer)
+		}
+	}
+	if timer.interval {
+		timer.timer.Reset(timer.duration)
+	} else {
+		delete(wi.timers, timer)
+	}
 }
 
 func (wi *WorldInterpreter) getLine(reader *bufio.Reader) (string, error) {
@@ -186,17 +254,37 @@ func (wi *WorldInterpreter) getExpression(reader *bufio.Reader) (string, error) 
 	return line, nil
 }
 
-func (wi *WorldInterpreter) ReadRun() {
+func (wi *WorldInterpreter) Run() {
+	go wi.REPLRun()
+	wi.TimerReadyRun()
+}
+
+// TODO
+// add some edit or history like a little repl console.
+func (wi *WorldInterpreter) REPLRun() {
 	reader := bufio.NewReader(os.Stdin)
 	wi.Printf("> ")
 	for {
 		select {
-		case <-wi.Quit:
-			wi.Quit <- struct{}{}
+		case <-wi.QuitRead:
+			wi.QuitRead <- struct{}{}
 			return
 		default:
 			input, _ := wi.getExpression(reader)
-			wi.world.InterpreterEval <- input
+			wi.world.InterpreterREPL <- input
+		}
+	}
+}
+
+func (wi *WorldInterpreter) TimerReadyRun() {
+	for {
+		select {
+		case <-wi.QuitTimerReady:
+			wi.QuitTimerReady <- struct{}{}
+			return
+		case timer := <-wi.timerReady:
+			wi.world.InterpreterTimer <- timer
+		default:
 		}
 	}
 }

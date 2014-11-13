@@ -36,8 +36,9 @@ type World struct {
 	//
 	ParseClientCall chan *WorldParseClientCall
 	//
-	interpreter     *WorldInterpreter
-	InterpreterEval chan string
+	interpreter      *WorldInterpreter
+	InterpreterREPL  chan string
+	InterpreterTimer chan *OttoTimer
 	//
 	delta    float32
 	timeStep time.Duration
@@ -86,7 +87,8 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 		LogoutAccount:            make(chan *Account, 8),
 		SceneObjecterChangeScene: make(chan *ChangeScene, 8),
 		ParseClientCall:          make(chan *WorldParseClientCall, 10240),
-		InterpreterEval:          make(chan string, 8),
+		InterpreterREPL:          make(chan string, 8),
+		InterpreterTimer:         make(chan *OttoTimer, 128),
 		BioReborn:                make(chan Bioer, 10240),
 		//
 		delta:    1.0 / 60.0,
@@ -163,11 +165,12 @@ func (w *World) ReloadScripts() {
 	w.logger.Println("Reloading Scripts")
 	// w.interpreter.ResetVM()
 	w.Emitter.ResetOttoEvents()
-	w.interpreter.LoadScripts()
+	w.interpreter.RemoveAndStopAllTimer()
 	for _, scene := range w.scenes {
 		scene.RemoveAllMober()
 		scene.RemoveAllNpcer()
 	}
+	w.interpreter.LoadScripts()
 	w.Emit("worldLoadScenes", w, w.scenes)
 	w.logger.Println("Reloaded Scripts!")
 }
@@ -194,7 +197,7 @@ func (w *World) WorldClientCall() WorldClientCall {
 func (w *World) Run() {
 	defer w.db.session.Close()
 	var wg sync.WaitGroup
-	go w.interpreter.ReadRun()
+	go w.interpreter.Run()
 	physicC := time.Tick(w.timeStep)
 	for {
 		select {
@@ -209,8 +212,10 @@ func (w *World) Run() {
 			wg.Wait()
 		case params := <-w.ParseClientCall:
 			w.DoParseClientCall(params.ClientCall, params.Conn)
-		case expr := <-w.InterpreterEval:
-			w.interpreter.Eval(expr)
+		case expr := <-w.InterpreterREPL:
+			w.interpreter.REPLEval(expr)
+		case timer := <-w.InterpreterTimer:
+			w.interpreter.TimerEval(timer)
 		case acc := <-w.LogoutAccount:
 			w.DoLogoutAccount(acc)
 		case params := <-w.SceneObjecterChangeScene:
