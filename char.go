@@ -60,6 +60,7 @@ type Charer interface {
 	LearnSkillByBaseId(sid int)
 	SendChatMessage(ch string, talkerName string, content string)
 	ClientChatMessage(ch string, talkerName string, content string) *ClientCall
+	SendNpcTalkBox(nt *NpcTalk)
 }
 
 type Char struct {
@@ -585,6 +586,19 @@ func (c *Char) SendChatMessage(ch string, talkerName string, content string) {
 	c.sock.SendClientCall(c.ClientChatMessage(ch, talkerName, content))
 }
 
+func (c *Char) SendNpcTalkBox(nt *NpcTalk) {
+	var client *NpcTalkClient = nil
+	if nt != nil {
+		client = nt.NpcTalkClient()
+	}
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleNpcTalkBox",
+		Params:   []interface{}{client},
+	}
+	c.sock.SendClientCall(clientCall)
+}
+
 func (c *Char) DropItem(id int, slotIndex int) {
 	if id <= 0 || slotIndex < 0 {
 		return
@@ -941,6 +955,13 @@ EachEq:
 }
 
 func (c *Char) UpdateClientItems() {
+}
+
+func (c *Char) SetTalkingNpcInfo(tNpc *TalkingNpcInfo) {
+	c.talkingNpcInfo = tNpc
+	if tNpc == nil {
+		c.SendNpcTalkBox(nil)
+	}
 }
 
 func (c *Char) TalkNpcById(nid int) {

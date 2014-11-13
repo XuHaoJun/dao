@@ -59,12 +59,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 				tNpcInfo.options = append(tNpcInfo.options, 1)
 				c, isCharer := b.(Charer)
 				if isCharer {
-					clientCall := &ClientCall{
-						Receiver: "char",
-						Method:   "handleNpcTalkBox",
-						Params:   []interface{}{nextNpcTalk.NpcTalkClient()},
-					}
-					c.SendClientCall(clientCall)
+					c.SendNpcTalkBox(nextNpcTalk)
 					c.GetItemByBaseId(10001)
 					c.GetItemByBaseId(5001)
 				}

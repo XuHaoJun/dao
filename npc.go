@@ -133,7 +133,7 @@ func (n *Npc) NpcClientBasic() *NpcClientBasic {
 func (n *Npc) FirstBeTalked(b Bioer) bool {
 	// TODO show talk box to char client
 	// or do something when talk
-	if b.TalkingNpcInfo().target == n.Npcer() {
+	if b.TalkingNpcInfo() == nil || b.TalkingNpcInfo().target == n.Npcer() {
 		return false
 	}
 	if n.OnFirstBeTalked != nil {
