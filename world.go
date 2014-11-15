@@ -394,6 +394,7 @@ func (w *World) TalkWorld(name string, content string) {
 		Method:   "handleChatMessage",
 		Params: []interface{}{
 			&ChatMessageClient{
+				time.Now(),
 				"World",
 				name,
 				content,

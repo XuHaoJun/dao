@@ -147,7 +147,7 @@ func (f *FireBallState) OnCollideBioer(b Bioer) {
 	}
 	f.HitTarget(b)
 	f.hitCount += 1
-	fmt.Println("hit bio:\n", b)
+	fmt.Println("hit bio:\n" + b.String())
 }
 
 func (f *FireBallState) CollisionEnter(arbiter *chipmunk.Arbiter) bool {

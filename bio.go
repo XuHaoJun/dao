@@ -5,6 +5,7 @@ import (
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
 	"math"
+	"time"
 )
 
 var (
@@ -219,16 +220,20 @@ type MoveStateClient struct {
 }
 
 func (m *MoveState) MoveStateClient() *MoveStateClient {
+	var baseVelocity *CpVectClient
+	if !vect.Equals(m.lastBaseVelocity, m.baseVelocity) {
+		baseVelocity = &CpVectClient{
+			m.baseVelocity.X,
+			m.baseVelocity.Y,
+		}
+	}
 	return &MoveStateClient{
 		Running: m.running,
 		TargetPos: &CpVectClient{
 			m.targetPos.X,
 			m.targetPos.Y,
 		},
-		BaseVelocity: &CpVectClient{
-			m.baseVelocity.X,
-			m.baseVelocity.Y,
-		},
+		BaseVelocity: baseVelocity,
 	}
 }
 
@@ -687,9 +692,10 @@ func (b *Bio) BioClientAttributes() *BioClientAttributes {
 }
 
 type ChatMessageClient struct {
-	ChatType string `json:"chatType"`
-	Talker   string `json:"talker"`
-	Content  string `json:"content"`
+	Date     time.Time `json:"time"`
+	ChatType string    `json:"chatType"`
+	Talker   string    `json:"talker"`
+	Content  string    `json:"content"`
 }
 
 func (b *Bio) UseFireBall() {
@@ -728,6 +734,7 @@ func (b *Bio) TalkScene(content string) {
 		Method:   "handleChatMessage",
 		Params: []interface{}{
 			&ChatMessageClient{
+				time.Now(),
 				"Scene",
 				b.name,
 				content,

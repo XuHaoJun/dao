@@ -573,6 +573,7 @@ func (c *Char) ClientChatMessage(ch string, talkerName string, content string) *
 		Method:   "handleChatMessage",
 		Params: []interface{}{
 			&ChatMessageClient{
+				time.Now(),
 				ch,
 				talkerName,
 				content,

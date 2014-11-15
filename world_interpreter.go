@@ -15,13 +15,12 @@ import (
 )
 
 type WorldInterpreter struct {
-	world          *World
-	timers         map[*OttoTimer]*OttoTimer
-	timerReady     chan *OttoTimer
-	mutex          *sync.Mutex
-	vm             *otto.Otto
-	QuitRead       chan struct{}
-	QuitTimerReady chan struct{}
+	world      *World
+	timers     map[*OttoTimer]*OttoTimer
+	timerReady chan *OttoTimer
+	mutex      *sync.Mutex
+	vm         *otto.Otto
+	QuitRead   chan struct{}
 }
 
 type OttoTimer struct {
@@ -45,7 +44,7 @@ func (wi *WorldInterpreter) NewOttoTimer(call otto.FunctionCall, interval bool) 
 	wi.timers[timer] = timer
 
 	timer.timer = time.AfterFunc(timer.duration, func() {
-		wi.timerReady <- timer
+		wi.world.InterpreterTimer <- timer
 	})
 
 	value, err := call.Otto.ToValue(timer)
@@ -58,13 +57,12 @@ func (wi *WorldInterpreter) NewOttoTimer(call otto.FunctionCall, interval bool) 
 
 func NewWorldInterpreter(w *World) *WorldInterpreter {
 	wi := &WorldInterpreter{
-		world:          w,
-		vm:             otto.New(),
-		timers:         map[*OttoTimer]*OttoTimer{},
-		timerReady:     make(chan *OttoTimer, 16),
-		mutex:          &sync.Mutex{},
-		QuitRead:       make(chan struct{}),
-		QuitTimerReady: make(chan struct{}),
+		world:      w,
+		vm:         otto.New(),
+		timers:     map[*OttoTimer]*OttoTimer{},
+		timerReady: make(chan *OttoTimer, 16),
+		mutex:      &sync.Mutex{},
+		QuitRead:   make(chan struct{}),
 	}
 	vm := wi.vm
 	vm.Set("dao", w)
@@ -256,7 +254,6 @@ func (wi *WorldInterpreter) getExpression(reader *bufio.Reader) (string, error) 
 
 func (wi *WorldInterpreter) Run() {
 	go wi.REPLRun()
-	wi.TimerReadyRun()
 }
 
 // TODO
@@ -272,19 +269,6 @@ func (wi *WorldInterpreter) REPLRun() {
 		default:
 			input, _ := wi.getExpression(reader)
 			wi.world.InterpreterREPL <- input
-		}
-	}
-}
-
-func (wi *WorldInterpreter) TimerReadyRun() {
-	for {
-		select {
-		case <-wi.QuitTimerReady:
-			wi.QuitTimerReady <- struct{}{}
-			return
-		case timer := <-wi.timerReady:
-			wi.world.InterpreterTimer <- timer
-		default:
 		}
 	}
 }
