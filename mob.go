@@ -64,12 +64,9 @@ func (m *Mob) OnBeKilledFunc() func(killer Bioer) {
 		if m.reborn.enable == false {
 			return
 		}
-		go func(w *World, mob *Mob) {
-			select {
-			case <-time.After(m.reborn.delayDuration):
-				w.BioReborn <- mob.Bioer()
-			}
-		}(m.world, m)
+		m.world.SetTimeout(func() {
+			m.world.BioReborn <- m.Bioer()
+		}, m.reborn.delayDuration)
 	}
 }
 

@@ -18,6 +18,7 @@ type World struct {
 	server   *Server
 	accounts map[string]*Account
 	scenes   map[string]*Scene
+	timers   map[*WorldTimer]*WorldTimer
 	db       *DaoDB
 	configs  *DaoConfigs
 	logger   *log.Logger
@@ -39,6 +40,7 @@ type World struct {
 	interpreter      *WorldInterpreter
 	InterpreterREPL  chan string
 	InterpreterTimer chan *OttoTimer
+	worldTimer       chan *WorldTimer
 	//
 	delta    float32
 	timeStep time.Duration
@@ -66,6 +68,13 @@ func NewWorldByConfig(dc *DaoConfigs) (w *World, err error) {
 	return
 }
 
+type WorldTimer struct {
+	timer    *time.Timer
+	duration time.Duration
+	interval bool
+	call     reflect.Value
+}
+
 func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*World, error) {
 	db, err := NewDaoDB(mgourl, dbname)
 	if err != nil {
@@ -88,7 +97,9 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 		SceneObjecterChangeScene: make(chan *ChangeScene, 8),
 		ParseClientCall:          make(chan *WorldParseClientCall, 10240),
 		InterpreterREPL:          make(chan string, 8),
-		InterpreterTimer:         make(chan *OttoTimer, 128),
+		InterpreterTimer:         make(chan *OttoTimer, 8),
+		worldTimer:               make(chan *WorldTimer, 128),
+		timers:                   make(map[*WorldTimer]*WorldTimer),
 		BioReborn:                make(chan Bioer, 10240),
 		//
 		delta:    1.0 / 60.0,
@@ -119,6 +130,7 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 	// after create scenes
 	w.configs.SceneConfigs.SetScenes(w.scenes)
 	w.Emit("worldLoadScenes", w, w.scenes)
+	//
 	return w, nil
 }
 
@@ -216,6 +228,8 @@ func (w *World) Run() {
 			w.interpreter.REPLEval(expr)
 		case timer := <-w.InterpreterTimer:
 			w.interpreter.TimerEval(timer)
+		case timer := <-w.worldTimer:
+			w.TimerEval(timer)
 		case acc := <-w.LogoutAccount:
 			w.DoLogoutAccount(acc)
 		case params := <-w.SceneObjecterChangeScene:
@@ -575,4 +589,59 @@ func (w *World) Accounts() map[string]*Account {
 
 func (w *World) Util() *Util {
 	return w.util
+}
+
+func (w *World) NewWorldTimer(f interface{}, delay time.Duration, interval bool) *WorldTimer {
+	fn := reflect.ValueOf(f)
+	if fn.Kind() != reflect.Func ||
+		fn.Type().NumIn() > 0 {
+		return nil
+	}
+	if 0 >= delay {
+		delay = 1
+	}
+	timer := &WorldTimer{
+		duration: delay,
+		call:     fn,
+		interval: interval,
+	}
+	w.timers[timer] = timer
+	timer.timer = time.AfterFunc(delay, func() {
+		w.worldTimer <- timer
+	})
+	return timer
+}
+
+func (w *World) SetInterval(f interface{}, delay time.Duration) *WorldTimer {
+	timer := w.NewWorldTimer(f, delay, true)
+	if timer == nil {
+		return nil
+	}
+	return timer
+}
+
+func (w *World) SetTimeout(f interface{}, delay time.Duration) *WorldTimer {
+	timer := w.NewWorldTimer(f, delay, false)
+	if timer == nil {
+		return nil
+	}
+	return timer
+}
+
+func (w *World) ClearTimeout(timer *WorldTimer) {
+	timer.timer.Stop()
+	delete(w.timers, timer)
+}
+
+func (w *World) ClearInterval(timer *WorldTimer) {
+	w.ClearTimeout(timer)
+}
+
+func (w *World) TimerEval(timer *WorldTimer) {
+	timer.call.Call(nil)
+	if timer.interval {
+		timer.timer.Reset(timer.duration)
+	} else {
+		delete(w.timers, timer)
+	}
 }
