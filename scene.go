@@ -255,6 +255,7 @@ func (s *Scene) Remove(sb SceneObjecter) {
 	delete(s.sceneObjects, sb.Id())
 	sb.SetLastId(sb.Id())
 	sb.SetLastSceneName(s.name)
+	sb.SetLastPosition(sb.Body().Position())
 	sb.SetScene(nil)
 	sb.SetInSceneDuration(time.Duration(0))
 	sb.SetId(-1)

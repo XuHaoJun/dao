@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/go-martini/martini"
 	"github.com/gorilla/websocket"
+	"github.com/martini-contrib/gzip"
 	"log"
 	"net/http"
 	"os"
@@ -247,17 +248,28 @@ func NewWsConn(ws *websocket.Conn, hub *WsHub) *wsConn {
 	}
 }
 
-func (s *Server) RunHTTP() {
+func (s *Server) RunWeb() {
 	go s.wsHub.Run()
-	port := s.configs.ServerConfigs.HttpPort
-	m := martini.Classic()
-	m.Map(s)
-	m.Get("/daows", serveWs)
-	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(port), m))
+	httpPort := s.configs.ServerConfigs.HttpPort
+	static := martini.Classic()
+	static.Use(gzip.All())
+	go func() {
+		log.Fatal(http.ListenAndServe(":"+strconv.Itoa(httpPort), static))
+	}()
+	r := martini.NewRouter()
+	r.Get("/daows", serveWs)
+	websocket := martini.New()
+	websocket.Use(martini.Logger())
+	websocket.Use(martini.Recovery())
+	websocket.MapTo(r, (*martini.Routes)(nil))
+	websocket.Map(s)
+	websocket.Action(r.Handle)
+	websocketPort := s.configs.ServerConfigs.WebSocketPort
+	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(websocketPort), websocket))
 }
 
 func (s *Server) Run() {
-	go s.RunHTTP()
+	go s.RunWeb()
 	go s.HandleSignal()
 	s.world.Run()
 }

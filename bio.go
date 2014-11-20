@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
+	"github.com/xuhaojun/emission-otto"
 	"math"
 	"time"
 )
@@ -43,11 +44,13 @@ type Bioer interface {
 	Spi() int
 	Vit() int
 	Wis() int
+	Matk() int
 	Hp() int
 	Level() int
+	BattleDef() *BattleDef
 	//
 	IsDied() bool
-	TakeDamage(d int, b Bioer)
+	TakeDamage(d *BattleDamage, b Bioer)
 	Reborn()
 	//
 	OnKillFunc() func(target Bioer)
@@ -56,6 +59,7 @@ type Bioer interface {
 }
 
 type Bio struct {
+	*emission.Emitter
 	*SceneObject
 	world      *World
 	name       string
@@ -77,21 +81,29 @@ type Bio struct {
 	wis int
 	spi int
 	// sub attribue
-	def   int
-	mdef  int
-	atk   int
-	matk  int
-	maxHp int
-	hp    int
-	maxMp int
-	mp    int
+	def                 int
+	mdef                int
+	atk                 int
+	matk                int
+	maxHp               int
+	hp                  int
+	lastHp              int
+	maxMp               int
+	mp                  int
+	lastMp              int
+	fireResistance      int
+	iceResistance       int
+	lightningResistance int
+	poisonResistance    int
 	// callbacks
 	OnKill     func(target Bioer)
 	OnBeKilled func(killer Bioer)
 	// skills
-	fireBallState *FireBallState
+	fireBallSkill *FireBallSkill
 	// npc interactive
 	talkingNpcInfo *TalkingNpcInfo
+	//
+	healSelfByRestTime float32
 }
 
 type BioClient struct {
@@ -268,6 +280,7 @@ func NewBio(w *World) *Bio {
 	body.IgnoreGravity = true
 	body.AddShape(circle)
 	bio := &Bio{
+		Emitter: emission.NewEmitterOtto(w.interpreter.vm),
 		SceneObject: &SceneObject{
 			body: body,
 		},
@@ -292,7 +305,7 @@ func NewBio(w *World) *Bio {
 	bio.clientCallPublisher = bio.ClientCallPublisher()
 	bio.skillUser = bio.Bioer()
 	bio.beKilleder = bio.Bioer()
-	bio.fireBallState = NewFireBallState(bio.skillUser)
+	bio.fireBallSkill = NewFireBallSkill(bio.skillUser)
 	return bio
 }
 
@@ -374,6 +387,18 @@ func (b *Bio) OnBeRemovedToScene(s *Scene) {
 	if old.OnSceneObjectLeave != nil {
 		b.viewAOIState.OnSceneObjectLeave = old.OnSceneObjectLeave
 	}
+	for _, fb := range b.fireBallSkill.fireBalls {
+		if !fb.isInScene {
+			continue
+		}
+		delete(fb.skill.fireBalls, fb.id)
+		scene := s
+		scene.Remove(fb.SceneObjecter())
+		fb.isInScene = false
+		fb.hitCount = 0
+		fb.inSceneDuration = 0
+	}
+	b.fireBallSkill.afterUseDuration = 0
 }
 
 func (b *Bio) OnSceneObjectEnterViewAOIFunc() func(sb SceneObjecter) {
@@ -512,10 +537,36 @@ func (b *Bio) MoveUpdate(delta float32) {
 func (b *Bio) BeforeUpdate(delta float32) {
 }
 
+func (b *Bio) HealSelfByRestUpdate(delta float32) bool {
+	b.healSelfByRestTime += delta
+	if b.healSelfByRestTime >= 3 {
+		b.lastHp = b.hp
+		b.IncHp(b.vit)
+		b.healSelfByRestTime = 0
+		if b.lastHp == b.hp {
+			return false
+		}
+		clientCall := &ClientCall{
+			Receiver: "bio",
+			Method:   "handleUpdateBioConfig",
+			Params: []interface{}{
+				b.id,
+				map[string]int{
+					"hp": b.hp,
+				},
+			},
+		}
+		b.clientCallPublisher.PublishClientCall(clientCall)
+		return true
+	}
+	return false
+}
+
 func (b *Bio) AfterUpdate(delta float32) {
 	b.MoveUpdate(delta)
 	b.ViewAOIUpdate(delta)
-	b.FireBallUpdate(delta)
+	b.HealSelfByRestUpdate(delta)
+	b.FireBallSkillUpdate(delta)
 }
 
 func (b *Bio) Name() string {
@@ -561,12 +612,17 @@ func (b *Bio) Spi() int {
 	return b.spi
 }
 
+func (b *Bio) Matk() int {
+	return b.matk
+}
+
 func (b *Bio) CalcAttributes() {
 	b.atk = b.str * 5
 	b.maxHp = b.vit * 5
 	b.def = b.vit * 3
 	b.maxMp = b.wis * 5
 	b.mdef = b.wis * 3
+	b.matk = b.spi
 	if b.hp > b.maxHp {
 		b.hp = b.maxHp
 	}
@@ -576,16 +632,17 @@ func (b *Bio) CalcAttributes() {
 }
 
 func (b *Bio) IncHp(n int) {
-	if b.hp <= 0 || n < 0 {
+	if b.hp <= 0 {
 		return
 	}
 	tmpHp := b.hp
 	tmpHp += n
 	if tmpHp >= b.maxHp {
-		return
+		b.hp = b.maxHp
 	} else {
 		b.hp = tmpHp
 	}
+	return
 }
 
 func (b *Bio) DecHp(n int, killer Bioer) bool {
@@ -702,7 +759,7 @@ func (b *Bio) UseFireBall() {
 	if b.IsDied() || b.scene == nil {
 		return
 	}
-	b.fireBallState.Fire()
+	b.fireBallSkill.Fire()
 }
 
 func (b *Bio) Reborn() {
@@ -744,11 +801,22 @@ func (b *Bio) TalkScene(content string) {
 	b.scene.DispatchClientCall(b, clientCall)
 }
 
-func (b *Bio) TakeDamage(d int, attacker Bioer) {
-	// server
+func (b *Bio) BattleDef() *BattleDef {
+	return &BattleDef{
+		def:                 b.def,
+		mdef:                b.mdef,
+		fireResistance:      b.fireResistance,
+		iceResistance:       b.iceResistance,
+		lightningResistance: b.lightningResistance,
+		poisonResistance:    b.poisonResistance,
+	}
+}
+
+func (b *Bio) TakeDamage(battleDamage *BattleDamage, attacker Bioer) {
 	if b.IsDied() {
 		return
 	}
+	d := battleDamage.SubBattleDef(b.BattleDef()).Total()
 	b.hp -= d
 	if b.hp < 0 {
 		b.hp = 0
@@ -766,8 +834,6 @@ func (b *Bio) TakeDamage(d int, attacker Bioer) {
 	}
 	b.clientCallPublisher.PublishClientCall(clientCall)
 	if b.hp == 0 {
-		b.lastId = b.id
-		b.lastSceneName = b.scene.name
 		scene := b.scene
 		scene.Remove(b)
 		if b.OnBeKilled != nil {
@@ -824,11 +890,11 @@ func (b *Bio) ViewAOIUpdate(delta float32) {
 	b.viewAOIState.body.SetPosition(b.body.Position())
 }
 
-func (b *Bio) FireBallUpdate(delta float32) {
-	if b.fireBallState == nil {
+func (b *Bio) FireBallSkillUpdate(delta float32) {
+	if b.fireBallSkill == nil {
 		return
 	}
-	b.fireBallState.Update(delta)
+	b.fireBallSkill.Update(delta)
 }
 
 func (v *ViewAOIState) CollisionEnter(arbiter *chipmunk.Arbiter) bool {

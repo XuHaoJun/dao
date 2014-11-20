@@ -36,8 +36,11 @@ type CharClientCall interface {
 	// skill
 	UseFireBall()
 	UseSkillByBaseId(sid int)
+	SetSkillHotKey(index int, sid int)
 	SetLeftSkillHotKey(sid int)
 	SetRightSkillHotKey(sid int)
+	ClearNormalHotKey(index int)
+	ClearSkillHotKey(index int)
 	SetNormalHotKey(index int, itemBaseId int, slotIndex int)
 }
 
@@ -404,27 +407,79 @@ func NewChar(name string, acc *Account) *Char {
 	return c
 }
 
+func (c *Char) ClearNormalHotKey(index int) {
+	c.hotKeys.Normal[index].ItemBaseId = -1
+	c.hotKeys.Normal[index].SlotIndex = -1
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params: []interface{}{
+			struct {
+				CharHotKeys *CharHotKeys `json:"hotKeys"`
+			}{c.hotKeys},
+		},
+	}
+	c.SendClientCall(clientCall)
+}
+
 func (c *Char) SetNormalHotKey(index int, itemBaseId int, slotIndex int) {
 	if index > 4 || itemBaseId <= 0 || slotIndex < 0 {
 		return
 	}
 	c.hotKeys.Normal[index].ItemBaseId = itemBaseId
 	c.hotKeys.Normal[index].SlotIndex = slotIndex
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params: []interface{}{
+			struct {
+				CharHotKeys *CharHotKeys `json:"hotKeys"`
+			}{c.hotKeys},
+		},
+	}
+	c.SendClientCall(clientCall)
 }
 
-func (c *Char) setSkillHotKey(index int, sid int) {
-	if sid <= 0 {
+func (c *Char) ClearSkillHotKey(index int) {
+	if index >= 2 {
+		return
+	}
+	c.hotKeys.Skill[index].SkillBaseId = -1
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params: []interface{}{
+			struct {
+				CharHotKeys *CharHotKeys `json:"hotKeys"`
+			}{c.hotKeys},
+		},
+	}
+	c.SendClientCall(clientCall)
+}
+
+func (c *Char) SetSkillHotKey(index int, sid int) {
+	if sid <= 0 || index >= len(c.hotKeys.Skill) {
 		return
 	}
 	c.hotKeys.Skill[index].SkillBaseId = sid
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params: []interface{}{
+			struct {
+				CharHotKeys *CharHotKeys `json:"hotKeys"`
+			}{c.hotKeys},
+		},
+	}
+	c.SendClientCall(clientCall)
 }
 
 func (c *Char) SetLeftSkillHotKey(sid int) {
-	c.setSkillHotKey(0, sid)
+	c.SetSkillHotKey(0, sid)
 }
 
 func (c *Char) SetRightSkillHotKey(sid int) {
-	c.setSkillHotKey(1, sid)
+	c.SetSkillHotKey(1, sid)
 }
 
 func (c *Char) UseFireBall() {
@@ -439,6 +494,7 @@ func (c *Char) UseFireBall() {
 	}
 	c.sock.SendClientCall(clientCall)
 	c.Bio.UseFireBall()
+	c.Bio.ShutDownMove()
 	c.world.logger.Println(c.name + " use fire ball")
 }
 
@@ -1222,7 +1278,7 @@ func (c *Char) SellItemToOpeningShop(baseId int, slotIndex int) {
 		itemsUpdate[strconv.Itoa(slotIndex)] = nil
 	}
 	itemsClientUpdate := map[string]interface{}{
-		iType: itemsUpdate,
+		ItemTypeByBaseId(baseId): itemsUpdate,
 	}
 	clientCalls := make([]*ClientCall, 2)
 	clientCalls[0] = &ClientCall{
@@ -1253,7 +1309,7 @@ func (c *Char) CancelOpeningShop() {
 	c.SendClientCall(clientCall)
 }
 
-func (c *Char) TakeDamage(d int, attacker Bioer) {
+func (c *Char) TakeDamage(d *BattleDamage, attacker Bioer) {
 	c.Bio.TakeDamage(d, attacker)
 	clientCall := &ClientCall{
 		Receiver: "char",

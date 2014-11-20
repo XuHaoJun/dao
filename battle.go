@@ -22,8 +22,41 @@ type BattleInfo struct {
 	mdef   int
 }
 
-type Damage struct {
-	normal int
-	fire   int
-	ice    int
+type BattleDamage struct {
+	normal    int
+	fire      int
+	ice       int
+	lightning int
+	poison    int
+}
+
+func batttleAttrSub(damage int, def int) int {
+	if def < damage && damage > 0 {
+		damage -= def
+	} else if def > damage && damage > 0 {
+		damage = 0
+	}
+	return damage
+}
+
+func (bDamage *BattleDamage) SubBattleDef(bDef *BattleDef) *BattleDamage {
+	bDamage.normal = batttleAttrSub(bDamage.normal, bDef.def)
+	bDamage.fire = batttleAttrSub(bDamage.fire, bDef.fireResistance)
+	bDamage.ice = batttleAttrSub(bDamage.ice, bDef.iceResistance)
+	bDamage.lightning = batttleAttrSub(bDamage.lightning, bDef.lightningResistance)
+	bDamage.poison = batttleAttrSub(bDamage.poison, bDef.poisonResistance)
+	return bDamage
+}
+
+func (bDamage *BattleDamage) Total() int {
+	return bDamage.fire + bDamage.ice + bDamage.normal + bDamage.lightning + bDamage.poison
+}
+
+type BattleDef struct {
+	def                 int
+	mdef                int
+	fireResistance      int
+	iceResistance       int
+	lightningResistance int
+	poisonResistance    int
 }

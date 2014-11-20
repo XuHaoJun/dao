@@ -2,6 +2,7 @@ package dao
 
 import (
 	"github.com/xuhaojun/chipmunk"
+	"github.com/xuhaojun/chipmunk/vect"
 	"time"
 )
 
@@ -12,6 +13,8 @@ type SceneObjecter interface {
 	LastSceneName() string
 	SetLastSceneName(s string)
 	SetLastId(id int)
+	SetLastPosition(pos vect.Vect)
+	LastPosition() vect.Vect
 	LastId() int
 	SetScene(*Scene)
 	Body() *chipmunk.Body
@@ -29,6 +32,7 @@ type SceneObject struct {
 	id              int
 	scene           *Scene
 	body            *chipmunk.Body
+	lastPosition    vect.Vect
 	lastSceneName   string
 	lastId          int
 	inSceneDuration time.Duration
@@ -60,6 +64,14 @@ func (sb *SceneObject) SetId(id int) {
 
 func (sb *SceneObject) SetLastId(id int) {
 	sb.lastId = id
+}
+
+func (sb *SceneObject) SetLastPosition(pos vect.Vect) {
+	sb.lastPosition = pos
+}
+
+func (sb *SceneObject) LastPosition() vect.Vect {
+	return sb.lastPosition
 }
 
 func (sb *SceneObject) LastId() int {

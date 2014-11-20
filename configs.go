@@ -76,7 +76,8 @@ func (conf *SceneConfigs) SetScenes(scenes map[string]*Scene) {
 }
 
 type ServerConfigs struct {
-	HttpPort int `yaml:"httpPort"`
+	HttpPort      int `yaml:"httpPort"`
+	WebSocketPort int `yaml:"websocketPort"`
 }
 
 type DaoConfigs struct {
@@ -112,7 +113,8 @@ func NewDefaultDaoConfigs() *DaoConfigs {
 			DBName: "dao",
 		},
 		ServerConfigs: &ServerConfigs{
-			HttpPort: 3000,
+			HttpPort:      3000,
+			WebSocketPort: 3001,
 		},
 		ItemConfigs: &ItemConfigs{
 			EtcItemConfigs: &EtcItemConfigs{
