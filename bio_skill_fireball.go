@@ -9,6 +9,8 @@ import (
 )
 
 type FireBallSkill struct {
+	level            int
+	ballLayer        chipmunk.Layer
 	owner            Bioer
 	fireBalls        map[int]*FireBallState
 	afterUseDuration time.Duration
@@ -17,7 +19,9 @@ type FireBallSkill struct {
 
 func NewFireBallSkill(b Bioer) *FireBallSkill {
 	return &FireBallSkill{
+		level:         1,
 		owner:         b,
+		ballLayer:     -1,
 		delayDuration: time.Second * 1,
 		fireBalls:     make(map[int]*FireBallState),
 	}
@@ -43,11 +47,25 @@ func (fbSkill *FireBallSkill) Update(delta float32) {
 	}
 }
 
+// TODO
+// replace simple int to dmage struct for descript more type damage!
+func (f *FireBallSkill) BattleDamage() *BattleDamage {
+	owner := f.owner
+	minDmage := owner.Matk() * 1
+	maxDmage := owner.Matk() * 3
+	fireDamage := RandIntnRange(minDmage, maxDmage)
+	fireDamage += f.level
+	damage := &BattleDamage{
+		fire: fireDamage,
+	}
+	return damage
+}
+
 type FireBallState struct {
-	skill *FireBallSkill
 	*SceneObject
+	skill              *FireBallSkill
+	battleDamage       *BattleDamage
 	baseId             int
-	level              int
 	inSceneDuration    time.Duration
 	autoRemoveDuration time.Duration
 	owner              Bioer
@@ -71,7 +89,7 @@ func (fbSkill *FireBallSkill) NewFireBallState() *FireBallState {
 		skill:              fbSkill,
 		SceneObject:        &SceneObject{},
 		baseId:             1,
-		level:              1,
+		battleDamage:       fbSkill.BattleDamage(),
 		inSceneDuration:    0,
 		autoRemoveDuration: time.Second * 3,
 		owner:              fbSkill.owner,
@@ -83,6 +101,7 @@ func (fbSkill *FireBallSkill) NewFireBallState() *FireBallState {
 		isInScene:          false,
 	}
 	circle := chipmunk.NewCircle(vect.Vector_Zero, 9)
+	circle.Layer = fbSkill.ballLayer
 	circle.IsSensor = true
 	body := chipmunk.NewBody(1, 1)
 	body.AddShape(circle)
@@ -155,25 +174,12 @@ func (f *FireBallState) Update(delta float32) {
 	f.inSceneDuration += deltaDuration
 }
 
-// TODO
-// replace simple int to dmage struct for descript more type damage!
-func (f *FireBallState) BattleDamage() *BattleDamage {
-	owner := f.owner
-	minDmage := owner.Matk() * 1
-	maxDmage := owner.Matk() * 3
-	fireDamage := RandIntnRange(minDmage, maxDmage)
-	damage := &BattleDamage{
-		fire: fireDamage,
-	}
-	return damage
-}
-
 func (f *FireBallState) HitTarget(b Bioer) {
 	if f.owner == nil || b.IsDied() {
 		return
 	}
-	b.TakeDamage(f.BattleDamage(), f.owner)
-	fmt.Println("hit target: ", b.Name(), "damage: ", f.BattleDamage(), "b.hp: ", b.Hp())
+	b.TakeDamage(f.battleDamage, f.owner)
+	fmt.Println("hit target: ", b.Name(), "damage: ", f.battleDamage, "b.hp: ", b.Hp())
 }
 
 func (f *FireBallState) OnCollideBioer(b Bioer) {

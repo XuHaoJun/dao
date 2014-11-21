@@ -11,6 +11,30 @@ import (
 	"time"
 )
 
+var (
+	CharLayer = chipmunk.Layer(8)
+)
+
+type CharSkillLevel int
+type CharSkillBaseId int
+type CharLearnedSkills map[CharSkillBaseId]CharSkillLevel
+
+func (lSkills CharLearnedSkills) Client() map[string]int {
+	client := make(map[string]int, len(lSkills))
+	for id, level := range lSkills {
+		client[strconv.Itoa(int(id))] = int(level)
+	}
+	return client
+}
+
+func (sid CharSkillBaseId) MaxLevel() int {
+	switch sid {
+	case 1:
+		return 20
+	}
+	return -1
+}
+
 type CharClientCall interface {
 	Logout()
 	Move(x, y float32)
@@ -90,8 +114,8 @@ type Char struct {
 	//
 	openingShop *Shop
 	//
-	skillBaseIds []int
-	hotKeys      *CharHotKeys
+	learnedSkills CharLearnedSkills
+	hotKeys       *CharHotKeys
 }
 
 type CharClient struct {
@@ -103,7 +127,7 @@ type CharClient struct {
 	Items         *ItemsClient      `json:"items"`
 	UsingEquips   UsingEquipsClient `json:"usingEquips"`
 	Dzeny         int               `json:"dzeny"`
-	SkillBaseIds  []int             `json:"skillBaseIds"`
+	LearnedSkills map[string]int    `json:"learnedSkills"`
 	HotKeys       *CharHotKeys      `json:"hotKeys"`
 	PickRadius    float32           `json:"pickRadius"`
 }
@@ -113,25 +137,25 @@ type CharClientBasic struct {
 }
 
 type CharDumpDB struct {
-	Id           bson.ObjectId     `bson:"_id"`
-	SlotIndex    int               `bson:"slotIndex"`
-	Name         string            `bson:"name"`
-	Level        int               `bson:"level"`
-	Hp           int               `bson:"hp"`
-	Mp           int               `bson:"mp"`
-	Str          int               `bson:"str"`
-	Vit          int               `bson:"vit"`
-	Wis          int               `bson:"wis"`
-	Spi          int               `bson:"spi"`
-	Dzeny        int               `bson:"dzeny"`
-	LastScene    *SceneInfo        `bson:"lastScene"`
-	SaveScene    *SceneInfo        `bson:"saveScene"`
-	UsingEquips  UsingEquipsDumpDB `bson:"usingEquips"`
-	Items        *ItemsDumpDB      `bson:"items"`
-	BodyViewId   int               `bson:"bodyViewId"`
-	BodyShape    *CircleShape      `bson:"bodyShape"`
-	SkillBaseIds []int             `bson:"skillBaseIds"`
-	HotKeys      *CharHotKeys      `bson:"hotKeys"`
+	Id            bson.ObjectId     `bson:"_id"`
+	SlotIndex     int               `bson:"slotIndex"`
+	Name          string            `bson:"name"`
+	Level         int               `bson:"level"`
+	Hp            int               `bson:"hp"`
+	Mp            int               `bson:"mp"`
+	Str           int               `bson:"str"`
+	Vit           int               `bson:"vit"`
+	Wis           int               `bson:"wis"`
+	Spi           int               `bson:"spi"`
+	Dzeny         int               `bson:"dzeny"`
+	LastScene     *SceneInfo        `bson:"lastScene"`
+	SaveScene     *SceneInfo        `bson:"saveScene"`
+	UsingEquips   UsingEquipsDumpDB `bson:"usingEquips"`
+	Items         *ItemsDumpDB      `bson:"items"`
+	BodyViewId    int               `bson:"bodyViewId"`
+	BodyShape     *CircleShape      `bson:"bodyShape"`
+	LearnedSkills map[string]int    `bson:"learnedSkills"`
+	HotKeys       *CharHotKeys      `bson:"hotKeys"`
 }
 
 type CircleShape struct {
@@ -168,25 +192,28 @@ func NewCharHotKeys() *CharHotKeys {
 
 func (c *Char) DumpDB() *CharDumpDB {
 	cDump := &CharDumpDB{
-		Id:           c.bsonId,
-		SlotIndex:    c.slotIndex,
-		Name:         c.name,
-		Level:        c.level,
-		Hp:           c.hp,
-		Mp:           c.mp,
-		Str:          c.str,
-		Vit:          c.vit,
-		Wis:          c.wis,
-		Spi:          c.spi,
-		Dzeny:        c.dzeny,
-		Items:        c.items.DumpDB(),
-		UsingEquips:  c.usingEquips.DumpDB(),
-		LastScene:    nil,
-		SaveScene:    c.saveSceneInfo,
-		BodyViewId:   c.bodyViewId,
-		BodyShape:    &CircleShape{32},
-		SkillBaseIds: c.skillBaseIds,
-		HotKeys:      c.hotKeys,
+		Id:          c.bsonId,
+		SlotIndex:   c.slotIndex,
+		Name:        c.name,
+		Level:       c.level,
+		Hp:          c.hp,
+		Mp:          c.mp,
+		Str:         c.str,
+		Vit:         c.vit,
+		Wis:         c.wis,
+		Spi:         c.spi,
+		Dzeny:       c.dzeny,
+		Items:       c.items.DumpDB(),
+		UsingEquips: c.usingEquips.DumpDB(),
+		LastScene:   nil,
+		SaveScene:   c.saveSceneInfo,
+		BodyViewId:  c.bodyViewId,
+		BodyShape:   &CircleShape{32},
+		HotKeys:     c.hotKeys,
+	}
+	cDump.LearnedSkills = map[string]int{}
+	for id, level := range c.learnedSkills {
+		cDump.LearnedSkills[strconv.Itoa(int(id))] = int(level)
 	}
 	if c.scene != nil {
 		cDump.LastScene = &SceneInfo{
@@ -215,22 +242,24 @@ func (c *Char) LearnSkillByBaseId(sid int) {
 	if sid <= 0 {
 		return
 	}
-	isLearned := false
-	for _, id := range c.skillBaseIds {
-		if id == sid {
-			isLearned = true
-			break
-		}
-	}
+	level, isLearned := c.learnedSkills[CharSkillBaseId(sid)]
 	if isLearned {
-		return
+		if int(level) >= int(CharSkillBaseId(sid).MaxLevel()) {
+			return
+		}
+		c.learnedSkills[CharSkillBaseId(sid)] += 1
+		learnedLevel := int(c.learnedSkills[CharSkillBaseId(sid)])
+		if sid == 1 {
+			c.fireBallSkill.level = learnedLevel
+		}
+	} else {
+		c.learnedSkills[CharSkillBaseId(sid)] = 1
 	}
-	c.skillBaseIds = append(c.skillBaseIds, sid)
 	// client
 	clientCall := &ClientCall{
 		Receiver: "char",
-		Method:   "handleSkillBaseIds",
-		Params:   []interface{}{c.skillBaseIds},
+		Method:   "handleLearnedSkills",
+		Params:   []interface{}{c.learnedSkills.Client()},
 	}
 	c.SendClientCall(clientCall)
 }
@@ -313,7 +342,13 @@ func (c *Char) UpdateItemsUseSelfItemFunc() {
 
 func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c := NewChar(cDump.Name, acc)
-	c.skillBaseIds = cDump.SkillBaseIds
+	for stringId, level := range cDump.LearnedSkills {
+		id, _ := strconv.Atoi(stringId)
+		c.learnedSkills[CharSkillBaseId(id)] = CharSkillLevel(level)
+		if id == 1 {
+			c.fireBallSkill.level = level
+		}
+	}
 	c.slotIndex = cDump.SlotIndex
 	c.bsonId = cDump.Id
 	c.hp = cDump.Hp
@@ -332,7 +367,7 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.body = chipmunk.NewBody(1, 1)
 	circle := chipmunk.NewCircle(vect.Vector_Zero, cDump.BodyShape.Radius)
 	circle.Group = BioGroup
-	circle.Layer = BioLayer
+	circle.Layer = BioLayer | CharLayer
 	circle.SetFriction(0)
 	circle.SetElasticity(0)
 	c.body.AddShape(circle)
@@ -373,9 +408,12 @@ func NewChar(name string, acc *Account) *Char {
 			dConfig.CharConfigs.FirstScene.X,
 			dConfig.CharConfigs.FirstScene.Y,
 		},
-		skillBaseIds: []int{},
-		hotKeys:      NewCharHotKeys(),
-		pickRadius:   111.0,
+		learnedSkills: map[CharSkillBaseId]CharSkillLevel{},
+		hotKeys:       NewCharHotKeys(),
+		pickRadius:    111.0,
+	}
+	for _, shape := range c.body.Shapes {
+		shape.Layer = shape.Layer | CharLayer
 	}
 	c.dzeny = acc.world.DaoConfigs().CharConfigs.InitDzeny
 	c.name = name
@@ -404,6 +442,7 @@ func NewChar(name string, acc *Account) *Char {
 	c.clientCallPublisher = c
 	c.Bio.skillUser = c
 	c.Bio.beKilleder = c
+	c.fireBallSkill.ballLayer = MobLayer
 	return c
 }
 
@@ -542,6 +581,10 @@ func (c *Char) GetInitItems() {
 
 func (c *Char) CharClient() *CharClient {
 	bClient := c.Bio.BioClient()
+	learnedSkills := map[string]int{}
+	for id, level := range c.learnedSkills {
+		learnedSkills[strconv.Itoa(int(id))] = int(level)
+	}
 	return &CharClient{
 		BioClient:     bClient,
 		SlotIndex:     c.slotIndex,
@@ -551,9 +594,9 @@ func (c *Char) CharClient() *CharClient {
 		Items:         c.items.ItemsClient(),
 		UsingEquips:   c.usingEquips.UsingEquipsClient(),
 		Dzeny:         c.dzeny,
-		SkillBaseIds:  c.skillBaseIds,
 		HotKeys:       c.hotKeys,
 		PickRadius:    c.pickRadius,
+		LearnedSkills: learnedSkills,
 	}
 }
 
@@ -597,7 +640,7 @@ func (c *Char) PickItem(sbId int) {
 		return
 	}
 	scene.Remove(item)
-	_, slotIndex := c.GetItem(item)
+	item, slotIndex := c.GetItem(item)
 	if slotIndex == -1 {
 		return
 	}

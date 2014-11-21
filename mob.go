@@ -1,8 +1,13 @@
 package dao
 
 import (
+	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
 	"time"
+)
+
+var (
+	MobLayer = chipmunk.Layer(4)
 )
 
 type Mober interface {
@@ -60,6 +65,9 @@ func NewMob(w *World) *Mob {
 		reborn:          &MobRebornState{},
 		dropItemBaseIds: []int{},
 	}
+	for _, shape := range mob.body.Shapes {
+		shape.Layer = shape.Layer | MobLayer
+	}
 	mob.bodyViewId = 10001
 	mob.clientCallPublisher = mob
 	mob.Bio.skillUser = mob.Bioer()
@@ -67,6 +75,7 @@ func NewMob(w *World) *Mob {
 	mob.viewAOIState = NewBioViewAOIState(200, mob.Bio)
 	mob.OnBeKilled = mob.OnBeKilledFunc()
 	mob.Bio.beKilleder = mob.Bioer()
+	mob.fireBallSkill.ballLayer = CharLayer
 	return mob
 }
 
