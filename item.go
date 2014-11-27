@@ -286,6 +286,51 @@ func (e *Equipment) DumpDB() *EquipmentDumpDB {
 	}
 }
 
+func (e *Equipment) DB() *EquipmentDB {
+	return &EquipmentDB{
+		Item:        e.Item.DumpDB(),
+		BonusInfo:   e.bonusInfo.DB(),
+		Etype:       e.etype,
+		EquipViewId: e.equipViewId,
+		EquipLimit:  e.equipLimit.DumpDB(),
+	}
+}
+
+func (eDB *EquipmentDB) DumpDB() *EquipmentDumpDB {
+	return &EquipmentDumpDB{
+		Item:        eDB.Item,
+		BonusInfo:   eDB.BonusInfo.DumpDB(),
+		Etype:       eDB.Etype,
+		EquipViewId: eDB.EquipViewId,
+		EquipLimit:  eDB.EquipLimit,
+	}
+}
+
+func (eDB *EquipmentBonusInfoDB) randIt(v []int) int {
+	length := len(v)
+	if length == 1 {
+		return v[0]
+	} else if length == 2 {
+		return RandIntnRange(v[0], v[1])
+	}
+	return 0
+}
+
+func (bDB *EquipmentBonusInfoDB) DumpDB() *EquipmentBonusInfoDumpDB {
+	return &EquipmentBonusInfoDumpDB{
+		MaxHp: bDB.randIt(bDB.MaxHp),
+		MaxMp: bDB.randIt(bDB.MaxMp),
+		Str:   bDB.randIt(bDB.Str),
+		Vit:   bDB.randIt(bDB.Vit),
+		Wis:   bDB.randIt(bDB.Wis),
+		Spi:   bDB.randIt(bDB.Spi),
+		Atk:   bDB.randIt(bDB.Atk),
+		Matk:  bDB.randIt(bDB.Matk),
+		Def:   bDB.randIt(bDB.Def),
+		Mdef:  bDB.randIt(bDB.Mdef),
+	}
+}
+
 func (e *EquipmentDumpDB) Load() *Equipment {
 	if e.Item == nil {
 		e.Item = NewItem().DumpDB()
@@ -313,6 +358,29 @@ type EquipmentDumpDB struct {
 	//
 	BonusInfo  *EquipmentBonusInfoDumpDB `bson:"bonusInfo"`
 	EquipLimit *EquipLimitDumpDB         `bson:"equipLimit"`
+}
+
+type EquipmentDB struct {
+	Item *ItemDumpDB `bson:"item"`
+	//
+	Etype       int `bson:"etype"`
+	EquipViewId int `bson:"equipViewId"`
+	//
+	BonusInfo  *EquipmentBonusInfoDB `bson:"bonusInfo"`
+	EquipLimit *EquipLimitDumpDB     `bson:"equipLimit"`
+}
+
+type EquipmentBonusInfoDB struct {
+	MaxHp []int `bson:"maxHp"`
+	MaxMp []int `bson:"maxMp"`
+	Str   []int `bson:"str"`
+	Vit   []int `bson:"vit"`
+	Wis   []int `bson:"wis"`
+	Spi   []int `bson:"spi"`
+	Atk   []int `bson:"atk"`
+	Matk  []int `bson:"matk"`
+	Def   []int `bson:"def"`
+	Mdef  []int `bson:"mdef"`
 }
 
 func NewEquipmentBonusInfo() *EquipmentBonusInfo {
@@ -398,6 +466,10 @@ func (b *EquipmentBonusInfo) DumpDB() *EquipmentBonusInfoDumpDB {
 		Def:   b.def,
 		Mdef:  b.mdef,
 	}
+}
+
+func (b *EquipmentBonusInfo) DB() *EquipmentBonusInfoDB {
+	return &EquipmentBonusInfoDB{}
 }
 
 func (b *EquipmentBonusInfoDumpDB) Load() *EquipmentBonusInfo {

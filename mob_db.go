@@ -31,7 +31,7 @@ func NewMobByBaseId1(w *World, id int) *Mob {
 	mob.reborn.enable = true
 	mob.reborn.sceneName = "daoField01"
 	mob.reborn.position = vect.Vect{X: 350, Y: 350}
-	mob.reborn.delayDuration = time.Second * 5
+	mob.reborn.delayDuration = time.Second * 8
 	mob.fireBallSkill.delayDuration = time.Second * 5
 	mob.aiUpdate = func(delta float32) {
 		sbs := mob.viewAOIState.inAreaSceneObjecters

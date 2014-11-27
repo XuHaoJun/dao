@@ -70,6 +70,9 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 			nextNpcTalk: &NpcTalk{
 				title:   npc.name,
 				content: "My name is Jack!",
+				options: []*NpcOption{
+					npcOpt0,
+				},
 			},
 			onSelect: func(curNpc Npcer, nextNpcTalk *NpcTalk, b Bioer) {
 				if nextNpcTalk == nil {

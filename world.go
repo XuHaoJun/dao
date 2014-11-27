@@ -527,13 +527,13 @@ func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {
 	} else {
 		iType = "etcItem"
 	}
-	eqDump := NewEquipment().DumpDB()
+	eqDB := NewEquipment().DB()
 	useDump := NewUseSelfItem().DumpDB()
 	etcDump := NewEtcItem().DumpDB()
 	queryItem := bson.M{"item.baseId": id}
 	switch iType {
 	case "equipment":
-		err = w.db.items.Find(queryItem).One(eqDump)
+		err = w.db.items.Find(queryItem).One(eqDB)
 	case "useSelfItem":
 		err = w.db.items.Find(queryItem).One(useDump)
 	case "etcItem":
@@ -548,7 +548,7 @@ func (w *World) NewItemByBaseId(id int) (item Itemer, err error) {
 	}
 	switch iType {
 	case "equipment":
-		item = eqDump.Load()
+		item = eqDB.DumpDB().Load()
 	case "useSelfItem":
 		config := w.DaoConfigs().ItemConfigs
 		useDump.MaxStackCount = config.UseSelfItemConfigs.MaxStackCount
