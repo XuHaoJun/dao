@@ -69,7 +69,8 @@ type Oauth2Config struct {
 }
 
 type Oauth2Configs struct {
-	Google *Oauth2Config `yaml:"google"`
+	Google   *Oauth2Config `yaml:"google"`
+	Facebook *Oauth2Config `yaml:"facebook"`
 }
 
 func (conf *SceneConfigs) SetScenes(scenes map[string]*Scene) {

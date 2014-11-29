@@ -446,13 +446,13 @@ func (s *Server) RunWeb() {
 	m.Use(s.DBHandler())
 	m.Use(render.Renderer())
 	if configs.ServerConfigs.EnableOauth2 {
-		gooAuth := configs.Oauth2Configs.Google
+		fbAuth := configs.Oauth2Configs.Facebook
 		oauth2.PathLogin = "/oauth2login"
 		oauth2.PathLogout = "/oauth2logout"
 		facebookAuth := oauth2.Facebook(
-			goauth2.Client(gooAuth.ClientId, gooAuth.ClientSecret),
-			goauth2.RedirectURL(gooAuth.RedirectURL),
-			goauth2.Scope(gooAuth.Scope),
+			goauth2.Client(fbAuth.ClientId, fbAuth.ClientSecret),
+			goauth2.RedirectURL(fbAuth.RedirectURL),
+			goauth2.Scope(fbAuth.Scope),
 		)
 		m.Use(facebookAuth)
 		// create account
