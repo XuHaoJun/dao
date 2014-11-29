@@ -61,3 +61,7 @@ func (d *DaoDB) CloneSession() *DaoDB {
 	}
 	return d2
 }
+
+func (d *DaoDB) Close() {
+	d.session.Close()
+}

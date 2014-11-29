@@ -3,6 +3,7 @@ package dao
 import (
 	"errors"
 	"github.com/xuhaojun/emission-otto"
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"log"
@@ -58,7 +59,7 @@ type ChangeScene struct {
 }
 
 type WorldClientCall interface {
-	RegisterAccount(username string, password string, sock *wsConn)
+	RegisterAccount(username string, password string, email string, sock *wsConn)
 	LoginAccount(username string, password string, sock *wsConn)
 }
 
@@ -249,8 +250,8 @@ func (w *World) Run() {
 
 // TODO
 // should check username and password is right format!
-func (w *World) registerAccount(username string, password string, sock *wsConn) {
-	db := w.db.CloneSession()
+func (w *World) registerAccount(username string, password string, email string, sock *wsConn) {
+	db := w.db
 	queryAcc := bson.M{"username": username}
 	err := db.accounts.Find(queryAcc).Select(bson.M{"_id": 1}).One(&struct{}{})
 	if err != nil && err != mgo.ErrNotFound {
@@ -264,11 +265,16 @@ func (w *World) registerAccount(username string, password string, sock *wsConn) 
 		}
 		sock.SendClientCall(clientCall)
 	} else if err == mgo.ErrNotFound {
-		acc := NewAccount(username, password, w)
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 10)
+		if err != nil {
+			panic(err)
+		}
+		acc := NewAccount(username, string(hashedPassword))
+		acc.email = email
+		acc.world = w
+		acc.maxChars = w.configs.AccountConfigs.MaxChars
 		acc.Save()
 		go w.db.UpdateAccountIndex()
-		// TODO
-		// Update client screen
 		clientParams := []interface{}{"success register a new account!"}
 		clientCall := &ClientCall{
 			Receiver: "world",
@@ -279,8 +285,8 @@ func (w *World) registerAccount(username string, password string, sock *wsConn) 
 	}
 }
 
-func (w *World) RegisterAccount(username string, password string, sock *wsConn) {
-	go w.registerAccount(username, password, sock)
+func (w *World) RegisterAccount(username string, password string, email string, sock *wsConn) {
+	go w.registerAccount(username, password, email, sock)
 }
 
 func (w *World) ShutDownServer() {
@@ -416,8 +422,8 @@ func (w *World) TalkWorld(name string, content string) {
 }
 
 func (w *World) LoginAccount(username string, password string, sock *wsConn) {
-	_, ok := w.accounts[username]
-	if ok {
+	_, isOnlineAccount := w.accounts[username]
+	if isOnlineAccount {
 		clientErr := []interface{}{"wrong username or password"}
 		clientCall := &ClientCall{
 			Receiver: "world",
@@ -433,7 +439,8 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) {
 	if err != nil && err != mgo.ErrNotFound {
 		panic(err)
 	}
-	if err == mgo.ErrNotFound || foundAcc.Password != password {
+	err = bcrypt.CompareHashAndPassword([]byte(foundAcc.Password), []byte(password))
+	if err == mgo.ErrNotFound || err != nil {
 		clientErr := []interface{}{"wrong username or password"}
 		clientCall := &ClientCall{
 			Receiver: "world",

@@ -61,6 +61,17 @@ type SceneConfigs struct {
 	Custom  map[string]*SceneBaseConfig `yaml:"custom,omitempty"`
 }
 
+type Oauth2Config struct {
+	ClientId     string `yaml:"clientId"`
+	ClientSecret string `yaml:"clientSecret"`
+	RedirectURL  string `yaml:"redirectURL"`
+	Scope        string `yaml:"scope"`
+}
+
+type Oauth2Configs struct {
+	Google *Oauth2Config `yaml:"google"`
+}
+
 func (conf *SceneConfigs) SetScenes(scenes map[string]*Scene) {
 	for name, scene := range scenes {
 		if conf.Default != nil {
@@ -76,8 +87,10 @@ func (conf *SceneConfigs) SetScenes(scenes map[string]*Scene) {
 }
 
 type ServerConfigs struct {
-	HttpPort      int `yaml:"httpPort"`
-	WebSocketPort int `yaml:"websocketPort"`
+	HttpPort      int    `yaml:"httpPort"`
+	EnableOauth2  bool   `yaml:"enableOauth2"`
+	WebSocketPort int    `yaml:"websocketPort"`
+	SessionKey    string `yaml:"sessionKey"`
 }
 
 type DaoConfigs struct {
@@ -88,6 +101,7 @@ type DaoConfigs struct {
 	ServerConfigs  *ServerConfigs
 	ItemConfigs    *ItemConfigs
 	SceneConfigs   *SceneConfigs
+	Oauth2Configs  *Oauth2Configs
 	pathMapping    map[string]interface{}
 }
 
@@ -115,6 +129,7 @@ func NewDefaultDaoConfigs() *DaoConfigs {
 		ServerConfigs: &ServerConfigs{
 			HttpPort:      3000,
 			WebSocketPort: 3001,
+			SessionKey:    "DaoSecret",
 		},
 		ItemConfigs: &ItemConfigs{
 			EtcItemConfigs: &EtcItemConfigs{
@@ -130,6 +145,7 @@ func NewDefaultDaoConfigs() *DaoConfigs {
 			},
 			Custom: make(map[string]*SceneBaseConfig),
 		},
+		Oauth2Configs: &Oauth2Configs{},
 	}
 	pathMapping := map[string]interface{}{
 		"./conf/char.yaml":    dc.CharConfigs,
@@ -139,6 +155,7 @@ func NewDefaultDaoConfigs() *DaoConfigs {
 		"./conf/server.yaml":  dc.ServerConfigs,
 		"./conf/item.yaml":    dc.ItemConfigs,
 		"./conf/scene.yaml":   dc.SceneConfigs,
+		"./conf/oauth2.yaml":  dc.Oauth2Configs,
 	}
 	dc.pathMapping = pathMapping
 	return dc

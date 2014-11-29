@@ -9,6 +9,7 @@ type Account struct {
 	bsonId    bson.ObjectId
 	username  string
 	password  string
+	email     string
 	world     *World
 	maxChars  int
 	chars     []*Char
@@ -27,12 +28,15 @@ type AccountDumpDB struct {
 	Id       bson.ObjectId `bson:"_id"`
 	Username string        `bson:"username"`
 	Password string        `bson:"password"`
+	Email    string        `bson:"email"`
 	MaxChars int           `bson:"maxChars"`
 	Chars    []*CharDumpDB `bson:"chars"`
 }
 
 func (aDump *AccountDumpDB) Load(w *World) *Account {
-	acc := NewAccount(aDump.Username, aDump.Password, w)
+	acc := NewAccount(aDump.Username, aDump.Password)
+	acc.world = w
+	acc.email = aDump.Email
 	acc.bsonId = aDump.Id
 	acc.maxChars = aDump.MaxChars
 	acc.chars = make([]*Char, len(aDump.Chars))
@@ -42,14 +46,11 @@ func (aDump *AccountDumpDB) Load(w *World) *Account {
 	return acc
 }
 
-func NewAccount(username string, password string, w *World) *Account {
-	maxChars := w.DaoConfigs().AccountConfigs.MaxChars
+func NewAccount(username string, password string) *Account {
 	a := &Account{
 		bsonId:   bson.NewObjectId(),
 		username: username,
 		password: password,
-		world:    w,
-		maxChars: maxChars,
 		chars:    []*Char{},
 		isOnline: false,
 	}
@@ -58,6 +59,13 @@ func NewAccount(username string, password string, w *World) *Account {
 
 func (a *Account) AccountClientCall() AccountClientCall {
 	return a
+}
+
+func (a *Account) SaveByOtherDB(db *DaoDB) {
+	accs := db.accounts
+	if _, err := accs.UpsertId(a.bsonId, a.DumpDB()); err != nil {
+		panic(err)
+	}
 }
 
 func (a *Account) Save() {
@@ -80,6 +88,7 @@ func (a *Account) DumpDB() *AccountDumpDB {
 		Id:       a.bsonId,
 		Username: a.username,
 		Password: a.password,
+		Email:    a.email,
 		MaxChars: a.maxChars,
 		Chars:    chars,
 	}
