@@ -48,7 +48,7 @@ type Item struct {
 type ItemDumpDB struct {
 	Name       string `bson:"name"`
 	AgeisName  string `bson:"ageisName"`
-	IconViewId int    `bson:"iconViewid"`
+	IconViewId int    `bson:"iconViewId"`
 	BaseId     int    `bson:"baseId"`
 	BuyPrice   int    `bson:"buyPrice"`
 	SellPrice  int    `bson:"sellPrice"`
@@ -538,19 +538,19 @@ func (e *EquipLimitDumpDB) Load() *EquipLimit {
 // equip type
 const (
 	// Armors
-	Helm = iota
-	Pauldrons
-	Armor
-	Shield
-	Golves
-	Belt
-	Boot
-	Ring
-	Amulet
-	Pant
+	Helm      = 0
+	Pauldrons = 1
+	Armor     = 2
+	Shield    = 3
+	Golves    = 4
+	Belt      = 5
+	Boot      = 6
+	Ring      = 7
+	Amulet    = 8
+	Pants     = 9
 	// Weapons
-	Sword
-	Stick
+	Sword = 10
+	Stick = 11
 )
 
 // equip part on body type
@@ -574,6 +574,14 @@ type UsingEquips []*Equipment
 
 func (ue UsingEquips) SetLeftHand(e *Equipment) {
 	ue[LeftHand] = e
+}
+
+func (ue UsingEquips) SetHead(e *Equipment) {
+	ue[Head] = e
+}
+
+func (ue UsingEquips) SetTorso(e *Equipment) {
+	ue[Torso] = e
 }
 
 func (ue UsingEquips) SetRightHand(e *Equipment) {
@@ -624,8 +632,20 @@ func (ue UsingEquips) RightFinger() *Equipment {
 	return ue[RightFinger]
 }
 
+func (ue UsingEquips) SetLeftFinger(e *Equipment) {
+	ue[LeftFinger] = e
+}
+
+func (ue UsingEquips) SetRightFinger(e *Equipment) {
+	ue[RightFinger] = e
+}
+
 func (ue UsingEquips) Neck() *Equipment {
 	return ue[Neck]
+}
+
+func (ue UsingEquips) SetNeck(e *Equipment) {
+	ue[Neck] = e
 }
 
 type UsingEquipsDumpDB []*EquipmentDumpDB
@@ -809,6 +829,8 @@ func (uCall *UseSelfItemCall) FindFunc(item Itemer, bio Bioer) (f reflect.Value)
 		if isChar {
 			receiver = char
 		}
+	default:
+		return
 	}
 	f = reflect.ValueOf(receiver).MethodByName(uCall.Method)
 	return

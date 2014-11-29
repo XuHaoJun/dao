@@ -188,17 +188,8 @@ func (w *World) ReloadScripts() {
 }
 
 func (w *World) ReloadAll() {
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		w.ReloadJsonDB()
-		wg.Done()
-	}()
-	go func() {
-		w.ReloadDaoConfigs()
-		wg.Done()
-	}()
-	wg.Wait()
+	w.ReloadJsonDB()
+	w.ReloadDaoConfigs()
 	w.ReloadScripts()
 }
 

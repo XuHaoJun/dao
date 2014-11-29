@@ -30,6 +30,15 @@ type BattleDamage struct {
 	poison    int
 }
 
+type BattleDef struct {
+	def                 int
+	mdef                int
+	fireResistance      int
+	iceResistance       int
+	lightningResistance int
+	poisonResistance    int
+}
+
 func batttleAttrSub(damage int, def int) int {
 	if def < damage && damage > 0 {
 		damage -= def
@@ -50,13 +59,4 @@ func (bDamage *BattleDamage) SubBattleDef(bDef *BattleDef) *BattleDamage {
 
 func (bDamage *BattleDamage) Total() int {
 	return bDamage.fire + bDamage.ice + bDamage.normal + bDamage.lightning + bDamage.poison
-}
-
-type BattleDef struct {
-	def                 int
-	mdef                int
-	fireResistance      int
-	iceResistance       int
-	lightningResistance int
-	poisonResistance    int
 }

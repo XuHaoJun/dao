@@ -31,6 +31,8 @@ func (sid CharSkillBaseId) MaxLevel() int {
 	switch sid {
 	case 1:
 		return 20
+	case 2:
+		return 20
 	}
 	return -1
 }
@@ -234,6 +236,8 @@ func (c *Char) UseSkillByBaseId(sid int) {
 	switch sid {
 	case 1:
 		c.UseFireBall()
+	case 2:
+		c.UseCleave()
 	}
 }
 
@@ -249,8 +253,11 @@ func (c *Char) LearnSkillByBaseId(sid int) {
 		}
 		c.learnedSkills[CharSkillBaseId(sid)] += 1
 		learnedLevel := int(c.learnedSkills[CharSkillBaseId(sid)])
-		if sid == 1 {
+		switch sid {
+		case 1:
 			c.fireBallSkill.level = learnedLevel
+		case 2:
+			c.cleaveSkill.level = learnedLevel
 		}
 	} else {
 		c.learnedSkills[CharSkillBaseId(sid)] = 1
@@ -345,8 +352,11 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	for stringId, level := range cDump.LearnedSkills {
 		id, _ := strconv.Atoi(stringId)
 		c.learnedSkills[CharSkillBaseId(id)] = CharSkillLevel(level)
-		if id == 1 {
-			c.fireBallSkill.level = level
+		switch id {
+		case 1:
+			c.fireBallSkill.level = int(level)
+		case 2:
+			c.cleaveSkill.level = int(level)
 		}
 	}
 	c.slotIndex = cDump.SlotIndex
@@ -443,6 +453,9 @@ func NewChar(name string, acc *Account) *Char {
 	c.Bio.skillUser = c
 	c.Bio.beKilleder = c
 	c.fireBallSkill.ballLayer = MobLayer
+	c.fireBallSkill.owner = c
+	c.cleaveSkill.layer = MobLayer
+	c.cleaveSkill.owner = c
 	return c
 }
 
@@ -537,6 +550,22 @@ func (c *Char) UseFireBall() {
 	c.world.logger.Println(c.name + " use fire ball")
 }
 
+func (c *Char) UseCleave() {
+	pos := c.body.Position()
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleSetPosition",
+		Params: []interface{}{map[string]float32{
+			"x": float32(pos.X),
+			"y": float32(pos.Y),
+		}},
+	}
+	c.sock.SendClientCall(clientCall)
+	c.Bio.UseCleave()
+	c.Bio.ShutDownMove()
+	c.world.logger.Println(c.name + " use cleave")
+}
+
 func (c *Char) CalcAttributes() {
 	for _, eq := range c.usingEquips {
 		if eq == nil {
@@ -553,11 +582,17 @@ func (c *Char) CalcAttributes() {
 			continue
 		}
 		c.maxHp += eq.bonusInfo.maxHp
-		c.maxMp += eq.bonusInfo.maxHp
+		c.maxMp += eq.bonusInfo.maxMp
 		c.atk += eq.bonusInfo.atk
 		c.matk += eq.bonusInfo.matk
 		c.def += eq.bonusInfo.def
 		c.mdef += eq.bonusInfo.mdef
+	}
+	if c.hp > c.maxHp {
+		c.hp = c.maxHp
+	}
+	if c.mp > c.maxMp {
+		c.mp = c.maxMp
 	}
 }
 
@@ -847,10 +882,18 @@ func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 			}
 			c.sock.SendClientCall(clientCall)
 		case *FireBallState:
-			// c.world.logger.Println("fire ball in view aoi!")
+			c.world.logger.Println("fire ball in view aoi!")
 			clientCall := &ClientCall{
 				Receiver: "scene",
 				Method:   "handleAddFireBall",
+				Params:   []interface{}{enter.Client()},
+			}
+			c.sock.SendClientCall(clientCall)
+		case *CleaveState:
+			c.world.logger.Println("cleave in view aoi!")
+			clientCall := &ClientCall{
+				Receiver: "scene",
+				Method:   "handleAddCleave",
 				Params:   []interface{}{enter.Client()},
 			}
 			c.sock.SendClientCall(clientCall)
@@ -962,12 +1005,45 @@ func (c *Char) EquipBySlot(slot int) {
 	hasEquiped := false
 	btype := 0
 	switch e.etype {
+	case Helm:
+		if c.usingEquips.Head() == nil {
+			c.usingEquips.SetHead(e)
+			hasEquiped = true
+			btype = Head
+		}
+	case Armor:
+		if c.usingEquips.Torso() == nil {
+			c.usingEquips.SetTorso(e)
+			hasEquiped = true
+			btype = Torso
+		}
+	case Ring:
+		if c.usingEquips.LeftFinger() == nil {
+			c.usingEquips.SetLeftFinger(e)
+			hasEquiped = true
+			btype = LeftFinger
+		} else if c.usingEquips.RightFinger() == nil {
+			c.usingEquips.SetRightFinger(e)
+			hasEquiped = true
+			btype = RightFinger
+		}
+	case Amulet:
+		if c.usingEquips.Neck() == nil {
+			c.usingEquips.SetNeck(e)
+			hasEquiped = true
+			btype = Neck
+		}
+	case Shield:
+		if c.usingEquips.LeftHand() == nil {
+			c.usingEquips.SetLeftHand(e)
+			hasEquiped = true
+			btype = LeftHand
+		}
 	case Sword:
 		if c.usingEquips.RightHand() == nil {
 			c.usingEquips.SetRightHand(e)
 			hasEquiped = true
 			btype = RightHand
-		} else if c.usingEquips.LeftHand() == nil {
 		}
 	}
 	if hasEquiped == false {

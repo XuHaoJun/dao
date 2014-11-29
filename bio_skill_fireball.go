@@ -10,6 +10,7 @@ import (
 
 type FireBallSkill struct {
 	level            int
+	baseId           int
 	ballLayer        chipmunk.Layer
 	owner            Bioer
 	fireBalls        map[int]*FireBallState
@@ -20,6 +21,7 @@ type FireBallSkill struct {
 func NewFireBallSkill(b Bioer) *FireBallSkill {
 	return &FireBallSkill{
 		level:         1,
+		baseId:        1,
 		owner:         b,
 		ballLayer:     -1,
 		delayDuration: time.Second * 1,
@@ -65,14 +67,11 @@ type FireBallState struct {
 	*SceneObject
 	skill              *FireBallSkill
 	battleDamage       *BattleDamage
-	baseId             int
 	inSceneDuration    time.Duration
 	autoRemoveDuration time.Duration
-	owner              Bioer
 	hitCount           int
 	maxHitCount        int
 	bodyViewId         int
-	iconViewId         int
 	baseSpeed          vect.Float
 	isInScene          bool
 }
@@ -81,22 +80,18 @@ type FireBallStateClient struct {
 	Id         int           `json:"id"`
 	CpBody     *CpBodyClient `json:"cpBody"`
 	BodyViewId int           `json:"bodyViewId"`
-	IconViewId int           `json:"iconViewId"`
 }
 
 func (fbSkill *FireBallSkill) NewFireBallState() *FireBallState {
 	fBall := &FireBallState{
 		skill:              fbSkill,
 		SceneObject:        &SceneObject{},
-		baseId:             1,
 		battleDamage:       fbSkill.BattleDamage(),
 		inSceneDuration:    0,
 		autoRemoveDuration: time.Second * 3,
-		owner:              fbSkill.owner,
 		hitCount:           0,
 		maxHitCount:        1,
 		bodyViewId:         10002,
-		iconViewId:         1,
 		baseSpeed:          100.0,
 		isInScene:          false,
 	}
@@ -120,20 +115,18 @@ func (f *FireBallState) Client() interface{} {
 		Id:         f.id,
 		CpBody:     ToCpBodyClient(f.body),
 		BodyViewId: f.bodyViewId,
-		IconViewId: f.iconViewId,
 	}
 }
 
 func (f *FireBallState) Fire() {
-	if f.isInScene || f.owner == nil {
+	if f.isInScene || f.skill.owner == nil {
 		return
 	}
 	f.hitCount = 0
 	f.inSceneDuration = 0
 	f.isInScene = true
 	body := f.body
-	b := f.owner
-	b.Scene().Add(f.SceneObjecter())
+	b := f.skill.owner
 	body.SetAngle(b.Body().Angle())
 	angle := b.Body().Angle() * -1
 	bPos := b.Body().Position()
@@ -148,10 +141,20 @@ func (f *FireBallState) Fire() {
 	// body.AddForce(float32(impulse.X), float32(impulse.Y))
 	body.SetVelocity(float32(impulse.X), float32(impulse.Y))
 	f.skill.fireBalls[f.id] = f
+	b.Scene().Add(f.SceneObjecter())
 }
 
 func (f *FireBallState) Body() *chipmunk.Body {
 	return f.body
+}
+
+func (f *FireBallState) Destroy() {
+	delete(f.skill.fireBalls, f.id)
+	scene := f.scene
+	scene.Remove(f.SceneObjecter())
+	f.isInScene = false
+	f.hitCount = 0
+	f.inSceneDuration = 0
 }
 
 func (f *FireBallState) Update(delta float32) {
@@ -159,12 +162,7 @@ func (f *FireBallState) Update(delta float32) {
 		return
 	}
 	if f.hitCount >= f.maxHitCount || f.inSceneDuration >= f.autoRemoveDuration {
-		delete(f.skill.fireBalls, f.id)
-		scene := f.scene
-		scene.Remove(f.SceneObjecter())
-		f.isInScene = false
-		f.hitCount = 0
-		f.inSceneDuration = 0
+		f.Destroy()
 		return
 	}
 	// logger := f.owner.World().logger
@@ -175,20 +173,20 @@ func (f *FireBallState) Update(delta float32) {
 }
 
 func (f *FireBallState) HitTarget(b Bioer) {
-	if f.owner == nil || b.IsDied() {
+	if f.skill.owner == nil || b.IsDied() {
 		return
 	}
-	b.TakeDamage(f.battleDamage, f.owner)
-	fmt.Println("hit target: ", b.Name(), "damage: ", f.battleDamage, "b.hp: ", b.Hp())
+	b.TakeDamage(f.battleDamage, f.skill.owner)
+	fmt.Println(f.skill.owner.Name(), "fire ball hit target: ", b.Name(),
+		"damage: ", f.battleDamage, "b.hp: ", b.Hp())
 }
 
 func (f *FireBallState) OnCollideBioer(b Bioer) {
-	if b == f.owner {
+	if b == f.skill.owner {
 		return
 	}
 	f.HitTarget(b)
 	f.hitCount += 1
-	fmt.Println("hit bio:\n" + b.String())
 }
 
 func (f *FireBallState) CollisionEnter(arbiter *chipmunk.Arbiter) bool {

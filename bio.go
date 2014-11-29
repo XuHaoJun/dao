@@ -17,6 +17,7 @@ var (
 type Bioer interface {
 	World() *World
 	Name() string
+	SetName(name string)
 	Id() int
 	SetId(int)
 	Move(x, y float32)
@@ -45,6 +46,7 @@ type Bioer interface {
 	Vit() int
 	Wis() int
 	Matk() int
+	Atk() int
 	Hp() int
 	Level() int
 	BattleDef() *BattleDef
@@ -56,6 +58,7 @@ type Bioer interface {
 	OnKillFunc() func(target Bioer)
 	// imple Stringer
 	String() string
+	ItemQuickRandHeal(min int, max int, effectId int) bool
 }
 
 type Bio struct {
@@ -100,6 +103,7 @@ type Bio struct {
 	OnBeKilled func(killer Bioer)
 	// skills
 	fireBallSkill *FireBallSkill
+	cleaveSkill   *CleaveSkill
 	// npc interactive
 	talkingNpcInfo *TalkingNpcInfo
 	//
@@ -306,6 +310,7 @@ func NewBio(w *World) *Bio {
 	bio.skillUser = bio.Bioer()
 	bio.beKilleder = bio.Bioer()
 	bio.fireBallSkill = NewFireBallSkill(bio.skillUser)
+	bio.cleaveSkill = NewCleaveSkill(bio.skillUser)
 	return bio
 }
 
@@ -537,13 +542,15 @@ func (b *Bio) MoveUpdate(delta float32) {
 func (b *Bio) BeforeUpdate(delta float32) {
 }
 
-func (b *Bio) HealSelfByRestUpdate(delta float32) bool {
+func (b *Bio) healSelfByRestUpdate(delta float32) bool {
 	b.healSelfByRestTime += delta
 	if b.healSelfByRestTime >= 3 {
 		b.lastHp = b.hp
+		b.lastMp = b.mp
 		b.IncHp(b.vit)
+		b.IncMp(b.spi)
 		b.healSelfByRestTime = 0
-		if b.lastHp == b.hp {
+		if b.lastHp == b.hp && b.lastMp == b.mp {
 			return false
 		}
 		clientCall := &ClientCall{
@@ -553,6 +560,7 @@ func (b *Bio) HealSelfByRestUpdate(delta float32) bool {
 				b.id,
 				map[string]int{
 					"hp": b.hp,
+					"mp": b.mp,
 				},
 			},
 		}
@@ -565,8 +573,13 @@ func (b *Bio) HealSelfByRestUpdate(delta float32) bool {
 func (b *Bio) AfterUpdate(delta float32) {
 	b.MoveUpdate(delta)
 	b.ViewAOIUpdate(delta)
-	b.HealSelfByRestUpdate(delta)
-	b.FireBallSkillUpdate(delta)
+	b.healSelfByRestUpdate(delta)
+	b.fireBallSkillUpdate(delta)
+	b.cleaveSkillUpdate(delta)
+}
+
+func (b *Bio) SetName(name string) {
+	b.name = name
 }
 
 func (b *Bio) Name() string {
@@ -616,6 +629,10 @@ func (b *Bio) Matk() int {
 	return b.matk
 }
 
+func (b *Bio) Atk() int {
+	return b.atk
+}
+
 func (b *Bio) CalcAttributes() {
 	b.atk = b.str * 5
 	b.maxHp = b.vit * 5
@@ -623,12 +640,6 @@ func (b *Bio) CalcAttributes() {
 	b.maxMp = b.wis * 5
 	b.mdef = b.wis * 3
 	b.matk = b.spi
-	if b.hp > b.maxHp {
-		b.hp = b.maxHp
-	}
-	if b.mp > b.maxMp {
-		b.mp = b.maxMp
-	}
 }
 
 func (b *Bio) IncHp(n int) {
@@ -641,6 +652,17 @@ func (b *Bio) IncHp(n int) {
 		b.hp = b.maxHp
 	} else {
 		b.hp = tmpHp
+	}
+	return
+}
+
+func (b *Bio) IncMp(n int) {
+	tmpMp := b.mp
+	tmpMp += n
+	if tmpMp >= b.maxMp {
+		b.mp = b.maxMp
+	} else {
+		b.mp = tmpMp
 	}
 	return
 }
@@ -762,6 +784,13 @@ func (b *Bio) UseFireBall() {
 	b.fireBallSkill.Fire()
 }
 
+func (b *Bio) UseCleave() {
+	if b.IsDied() || b.scene == nil {
+		return
+	}
+	b.cleaveSkill.Fire()
+}
+
 func (b *Bio) Reborn() {
 	return
 }
@@ -850,6 +879,10 @@ func (b *Bio) OnKillFunc() func(target Bioer) {
 	return b.OnKill
 }
 
+func (b *Bio) ItemQuickRandHeal(min int, max int, effectId int) bool {
+	return b.ItemQuickHeal(RandIntnRange(min, max), effectId)
+}
+
 func (b *Bio) ItemQuickHeal(n int, effectId int) bool {
 	if b.IsDied() {
 		return false
@@ -890,11 +923,18 @@ func (b *Bio) ViewAOIUpdate(delta float32) {
 	b.viewAOIState.body.SetPosition(b.body.Position())
 }
 
-func (b *Bio) FireBallSkillUpdate(delta float32) {
+func (b *Bio) fireBallSkillUpdate(delta float32) {
 	if b.fireBallSkill == nil {
 		return
 	}
 	b.fireBallSkill.Update(delta)
+}
+
+func (b *Bio) cleaveSkillUpdate(delta float32) {
+	if b.cleaveSkill == nil {
+		return
+	}
+	b.cleaveSkill.Update(delta)
 }
 
 func (v *ViewAOIState) CollisionEnter(arbiter *chipmunk.Arbiter) bool {

@@ -112,6 +112,10 @@ func (wi *WorldInterpreter) RemoveAndStopAllTimer() {
 	wi.timers = map[*OttoTimer]*OttoTimer{}
 }
 
+func (wi *WorldInterpreter) anonymousScript(src []byte) string {
+	return fmt.Sprintf("(function(){%s})();", string(src))
+}
+
 func (wi *WorldInterpreter) loadScripts(dir string, name string) error {
 	path := dir + name
 	file, err := ioutil.ReadFile(path)
@@ -128,7 +132,7 @@ func (wi *WorldInterpreter) loadScripts(dir string, name string) error {
 		if err != nil {
 			return err
 		}
-		wi.vm.Run(src)
+		wi.vm.Run(wi.anonymousScript(src))
 	}
 	for _, imp := range config.Imports {
 		impSpl := strings.SplitAfter(imp, "/")

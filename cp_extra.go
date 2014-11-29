@@ -23,6 +23,19 @@ func ToCpBodyClient(body *chipmunk.Body) *CpBodyClient {
 					realShape.Position.Y,
 				},
 			}
+		case *chipmunk.BoxShape:
+			shapeClient = map[string]interface{}{
+				"type":   "box",
+				"group":  shape.Group,
+				"layer":  shape.Layer,
+				"width":  realShape.Width,
+				"height": realShape.Height,
+				"sensor": shape.IsSensor,
+				"position": &CpVectClient{
+					realShape.Position.X,
+					realShape.Position.Y,
+				},
+			}
 		case *chipmunk.SegmentShape:
 			shapeClient = map[string]interface{}{
 				"type":   "segment",

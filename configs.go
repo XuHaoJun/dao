@@ -152,8 +152,8 @@ func NewDaoConfigsByConfigFiles() *DaoConfigs {
 
 func (dc *DaoConfigs) ReloadConfigFiles() {
 	var wg sync.WaitGroup
+	wg.Add(len(dc.pathMapping))
 	for fname, cg := range dc.pathMapping {
-		wg.Add(1)
 		go func(fileName string, config interface{}) {
 			file, e := ioutil.ReadFile(fileName)
 			if e != nil {
