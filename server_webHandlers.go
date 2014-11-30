@@ -7,6 +7,7 @@ import (
 	"github.com/go-martini/martini"
 	"github.com/martini-contrib/render"
 	"github.com/martini-contrib/sessions"
+	"github.com/nu7hatch/gouuid"
 	"github.com/xuhaojun/oauth2"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/mgo.v2"
@@ -115,7 +116,7 @@ func handleAccountInfo(db *DaoDB, session sessions.Session, r render.Render, w *
 }
 
 func handleAccountRegisterByFacebook(db *DaoDB, r render.Render, tokens oauth2.Tokens, configs *DaoConfigs) {
-	if tokens.Expired() {
+	if tokens.Expired() || tokens.ProviderName() != "Facebook" {
 		r.Redirect("oauth2login?next=#loginFacebook", 302)
 		return
 	}
@@ -147,7 +148,7 @@ func handleAccountRegisterByFacebook(db *DaoDB, r render.Render, tokens oauth2.T
 }
 
 func handleAccountLoginWebByFacebook(db *DaoDB, r render.Render, tokens oauth2.Tokens, session sessions.Session) {
-	if tokens.Expired() {
+	if tokens.Expired() || tokens.ProviderName() != "Facebook" {
 		r.Redirect("oauth2login?next=#home", 302)
 		return
 	}
@@ -179,7 +180,7 @@ func handleAccountLoginWebByFacebook(db *DaoDB, r render.Render, tokens oauth2.T
 }
 
 func handleAccountLoginGameByFacebook(db *DaoDB, r render.Render, tokens oauth2.Tokens, session sessions.Session) {
-	if tokens.Expired() {
+	if tokens.Expired() || tokens.ProviderName() != "Facebook" {
 		r.Redirect("oauth2login?next=#loginFacebook", 302)
 		return
 	}
@@ -239,10 +240,31 @@ func handleAccountLoginWeb(form AccountLoginForm, session sessions.Session, r re
 		return
 	}
 	session.Set("username", username)
-	r.JSON(200, map[string]string{"success": "logined!", "username": username})
+	r.JSON(200, map[string]string{
+		"success":  "logined!",
+		"username": username,
+	})
 }
 
-func handleAccountLoginGameBySession(form AccountLoginForm, session sessions.Session, r render.Render, db *DaoDB) {
+func handleAccountLoginGameBySession(session sessions.Session, r render.Render, w *World) {
+	username := session.Get("username")
+	if username == nil {
+		r.JSON(200, map[string]string{"error": "not logined!"})
+		return
+	}
+	base, _ := uuid.NewV4()
+	token := base.String()
+	w.addAccountLoginBySession <- &AccountLoginBySession{
+		username.(string),
+		token,
+	}
+	clientCall := &ClientCall{
+		Receiver: "world",
+		Method:   "handleLoginAccountBySessionToken",
+		Params:   []interface{}{username, token},
+	}
+	session.Set("username", username.(string))
+	r.JSON(200, clientCall)
 }
 
 func handleAccountLoginGame(form AccountLoginForm, session sessions.Session, r render.Render, db *DaoDB) {

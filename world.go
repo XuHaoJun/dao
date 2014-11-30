@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+type AccountLoginBySession struct {
+	Username     string
+	SessionToken string
+}
+
 type World struct {
 	*emission.Emitter
 	name     string
@@ -24,6 +29,8 @@ type World struct {
 	configs  *DaoConfigs
 	logger   *log.Logger
 	//
+	accountLoginBySessionMap map[string]string
+	addAccountLoginBySession chan *AccountLoginBySession
 	// SaveAccount     chan *Account
 	// RegisterAccount chan *WorldRegisterAccount
 	// LoginAccount    chan *WorldLoginAccount
@@ -61,6 +68,7 @@ type ChangeScene struct {
 type WorldClientCall interface {
 	RegisterAccount(username string, password string, email string, sock *wsConn)
 	LoginAccount(username string, password string, sock *wsConn)
+	LoginAccountBySessionToken(username string, token string, sock *wsConn)
 }
 
 func NewWorldByConfig(dc *DaoConfigs) (w *World, err error) {
@@ -102,6 +110,8 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 		worldTimer:               make(chan *WorldTimer, 128),
 		timers:                   make(map[*WorldTimer]*WorldTimer),
 		BioReborn:                make(chan Bioer, 10240),
+		accountLoginBySessionMap: make(map[string]string, 32),
+		addAccountLoginBySession: make(chan *AccountLoginBySession, 8),
 		//
 		delta:    1.0 / 60.0,
 		timeStep: (1.0 * time.Second / 60.0),
@@ -224,6 +234,10 @@ func (w *World) Run() {
 			w.TimerEval(timer)
 		case acc := <-w.LogoutAccount:
 			w.DoLogoutAccount(acc)
+		case params := <-w.addAccountLoginBySession:
+			username := params.Username
+			sessionToken := params.SessionToken
+			w.accountLoginBySessionMap[username] = sessionToken
 		case params := <-w.SceneObjecterChangeScene:
 			sb := params.SceneObjecter
 			scene := params.Scene
@@ -311,6 +325,7 @@ func (w *World) DoParseClientCall(clientCall *ClientCall, conn *wsConn) {
 			return
 		}
 		if clientCall.Method == "LoginAccount" ||
+			clientCall.Method == "LoginAccountBySessionToken" ||
 			clientCall.Method == "RegisterAccount" {
 			clientCall.Params = append(clientCall.Params, conn)
 		}
@@ -419,6 +434,46 @@ func (w *World) TalkWorld(name string, content string) {
 		char := acc.UsingChar()
 		char.sock.SendClientCall(clientCall)
 	}
+}
+
+func (w *World) LoginAccountBySessionToken(username string, token string, sock *wsConn) {
+	_, isOnlineAccount := w.accounts[username]
+	realToken, found := w.accountLoginBySessionMap[username]
+	if isOnlineAccount || !found || realToken != token {
+		clientErr := []interface{}{"wrong username or password"}
+		clientCall := &ClientCall{
+			Receiver: "world",
+			Method:   "handleErrorLoginAccount",
+			Params:   clientErr,
+		}
+		sock.SendClientCall(clientCall)
+		return
+	}
+	delete(w.accountLoginBySessionMap, username)
+	foundAcc := &AccountDumpDB{}
+	queryAcc := bson.M{"username": username}
+	err := w.db.accounts.Find(queryAcc).One(foundAcc)
+	if err != nil && err != mgo.ErrNotFound {
+		panic(err)
+	}
+	acc := foundAcc.Load(w)
+	w.accounts[acc.username] = acc
+	acc.Login(sock)
+	charClients := make([]interface{}, len(acc.chars))
+	for i, char := range acc.chars {
+		charClients[i] = char.CharClient()
+	}
+	param := map[string]interface{}{
+		"username":    username,
+		"charConfigs": charClients,
+	}
+	clientCall := &ClientCall{
+		Receiver: "world",
+		Method:   "handleSuccessLoginAcccount",
+		Params:   []interface{}{param},
+	}
+	sock.SendClientCall(clientCall)
+	w.logger.Println("Account:", acc.username, "Logined.")
 }
 
 func (w *World) LoginAccount(username string, password string, sock *wsConn) {
