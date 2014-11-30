@@ -1,8 +1,6 @@
 package dao
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"github.com/go-martini/martini"
 	"github.com/gorilla/websocket"
@@ -11,10 +9,7 @@ import (
 	"github.com/martini-contrib/render"
 	"github.com/martini-contrib/sessions"
 	"github.com/xuhaojun/oauth2"
-	"golang.org/x/crypto/bcrypt"
 	goauth2 "golang.org/x/oauth2"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
 	"log"
 	"net/http"
 	"os"
@@ -279,168 +274,13 @@ func (s *Server) RunWebSocket() {
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(websocketPort), m))
 }
 
-type AccountRegisterFrom struct {
-	Username string `form:"username" binding:"required"`
-	Password string `form:"password" binding:"required"`
-	Email    string `form:"email" binding:"required"`
-}
-
-func (s *Server) DBHandler() martini.Handler {
-	return func(c martini.Context) {
-		dbSessionClone := s.db.CloneSession()
-		c.Map(dbSessionClone)
-		defer dbSessionClone.Close()
-		c.Next()
-	}
-}
-
-func handleAccountRegister(form AccountRegisterFrom, db *DaoDB, r render.Render, configs *DaoConfigs) {
-	username := form.Username
-	password := form.Password
-	email := form.Email
-	queryAcc := bson.M{"username": username}
-	err := db.accounts.Find(queryAcc).Select(bson.M{"_id": 1}).One(&struct{}{})
-	var clientCall *ClientCall
-	if err != nil && err != mgo.ErrNotFound {
-		panic(err)
-	} else if err != mgo.ErrNotFound {
-		clientErr := []interface{}{"duplicated account!"}
-		clientCall = &ClientCall{
-			Receiver: "world",
-			Method:   "handleErrorLoginAccount",
-			Params:   clientErr,
-		}
-	} else if err == mgo.ErrNotFound {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 10)
-		if err != nil {
-			panic(err)
-		}
-		acc := NewAccount(username, string(hashedPassword))
-		acc.email = email
-		acc.maxChars = configs.AccountConfigs.MaxChars
-		acc.SaveByOtherDB(db)
-		go db.UpdateAccountIndex()
-		clientParams := []interface{}{"success register a new account!"}
-		clientCall = &ClientCall{
-			Receiver: "world",
-			Method:   "handleSuccessRegisterAccount",
-			Params:   clientParams,
-		}
-	}
-	r.JSON(200, clientCall)
-}
-
-func handleAccountInfo(db *DaoDB, session sessions.Session, r render.Render) {
-	var clientCall *ClientCall
-	username := session.Get("username")
-	if username == nil {
-		clientCall = &ClientCall{
-			Receiver: "world",
-			Method:   "handleAccountInfo",
-			Params:   []interface{}{map[string]string{"error": "not login!"}},
-		}
-	} else {
-		foundAcc := &AccountDumpDB{}
-		queryAcc := bson.M{"username": username.(string)}
-		err := db.accounts.Find(queryAcc).One(foundAcc)
-		if err != nil && err != mgo.ErrNotFound {
-			panic(err)
-		}
-		if err == mgo.ErrNotFound || err != nil {
-			clientErr := []interface{}{"wrong username"}
-			clientCall = &ClientCall{
-				Receiver: "world",
-				Method:   "handleErrorAccountInfo",
-				Params:   clientErr,
-			}
-		}
-		// TODO
-		// put account infomation back!
-		clientCall = &ClientCall{
-			Receiver: "world",
-			Method:   "handleAccountInfo",
-			Params:   []interface{}{},
-		}
-	}
-	r.JSON(200, clientCall)
-}
-
-type AccountLoginForm struct {
-	Username string `form:"username" binding:"required"`
-	Password string `form:"password" binding:"required"`
-}
-
-func handleAccountLogin(form AccountLoginForm) {
-}
-
-func handleAccountRegisterByFacebook(db *DaoDB, r render.Render, tokens oauth2.Tokens, configs *DaoConfigs) {
-	if tokens.Expired() {
-		r.Redirect("oauth2login?next=#loginFacebook", 302)
-		return
-	}
-	url := "https://graph.facebook.com/me?access_token=" + tokens.Access()
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	req.Header.Add("Accept", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	decoder := json.NewDecoder(resp.Body)
-	v := &FacebookProfile{}
-	err = decoder.Decode(v)
-	if err != nil {
-		log.Panicln(err)
-	}
-	resp.Body.Close()
-	hasher := md5.New()
-	hasher.Write([]byte("facebook" + v.Name + v.Id))
-	username := hex.EncodeToString(hasher.Sum(nil))
-	password := v.Id + v.Name + "facebook"
-	handleAccountRegister(
-		AccountRegisterFrom{username, password, ""},
-		db, r, configs)
-}
-
-func handleAccountLoginByFacebook(db *DaoDB, r render.Render, tokens oauth2.Tokens, configs *DaoConfigs) {
-	if tokens.Expired() {
-		r.Redirect("oauth2login?next=#loginFacebook", 302)
-		return
-	}
-	url := "https://graph.facebook.com/me?access_token=" + tokens.Access()
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	req.Header.Add("Accept", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	decoder := json.NewDecoder(resp.Body)
-	v := &FacebookProfile{}
-	err = decoder.Decode(v)
-	if err != nil {
-		log.Panicln(err)
-	}
-	resp.Body.Close()
-	hasher := md5.New()
-	hasher.Write([]byte("facebook" + v.Name + v.Id))
-	username := hex.EncodeToString(hasher.Sum(nil))
-	password := v.Id + v.Name + "facebook"
-	r.JSON(200, map[string]string{"username": username, "password": password})
-}
-
 func (s *Server) RunWeb() {
 	configs := s.configs
 	sessionKey := s.configs.ServerConfigs.SessionKey
 	store := sessions.NewCookieStore([]byte(sessionKey))
 	m := martini.Classic()
 	m.Map(s.configs)
+	m.Map(s.world)
 	m.Use(gzip.All())
 	m.Use(sessions.Sessions("_auth", store))
 	m.Use(s.DBHandler())
@@ -458,10 +298,20 @@ func (s *Server) RunWeb() {
 		// create account
 		m.Get("/account/newByFacebook", oauth2.LoginRequired, handleAccountRegisterByFacebook)
 		// login account
-		m.Get("/account/loginGameByFacebook", oauth2.LoginRequired, handleAccountLoginByFacebook)
+		m.Get("/account/loginGameByFacebook", oauth2.LoginRequired, handleAccountLoginGameByFacebook)
+		m.Get("/account/loginWebByFacebook", oauth2.LoginRequired, handleAccountLoginWebByFacebook)
 	}
 	// create account
 	m.Post("/account", binding.Bind(AccountRegisterFrom{}), handleAccountRegister)
+	// login account
+	m.Post("/account/loginWeb", binding.Bind(AccountLoginForm{}), handleAccountLoginWeb)
+	m.Post("/account/loginGame", binding.Bind(AccountLoginForm{}), handleAccountLoginGame)
+	m.Get("/account/loginGamebySession", handleAccountLoginGameBySession)
+	// logout account
+	m.Get("/account/logout", hanldeAccountLogout)
+	// get account
+	m.Get("/account", handleAccountInfo)
+	m.Get("/account/isLogined", haldeAccountIsLogined)
 	// server run
 	httpPort := s.configs.ServerConfigs.HttpPort
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(httpPort), m))
