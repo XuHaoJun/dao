@@ -177,6 +177,7 @@ func handleAccountLoginWebByFacebook(db *DaoDB, r render.Render, tokens oauth2.T
 	hasher.Write([]byte("facebook" + v.Name + v.Id))
 	username := hex.EncodeToString(hasher.Sum(nil))
 	session.Set("username", username)
+	r.JSON(200, map[string]string{"username": username})
 }
 
 func handleAccountLoginGameByFacebook(db *DaoDB, r render.Render, tokens oauth2.Tokens, session sessions.Session) {
