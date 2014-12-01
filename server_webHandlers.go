@@ -139,9 +139,9 @@ func handleAccountRegisterByFacebook(db *DaoDB, r render.Render, tokens oauth2.T
 	}
 	resp.Body.Close()
 	hasher := md5.New()
-	hasher.Write([]byte("facebook" + v.Name + v.Id))
+	hasher.Write([]byte("facebook" + v.Id))
 	username := hex.EncodeToString(hasher.Sum(nil))
-	password := v.Id + v.Name + "facebook"
+	password := v.Id + "facebook"
 	handleAccountRegister(
 		AccountRegisterFrom{username, password, ""},
 		db, r, configs)
@@ -174,7 +174,7 @@ func handleAccountLoginWebByFacebook(db *DaoDB, r render.Render, tokens oauth2.T
 	}
 	resp.Body.Close()
 	hasher := md5.New()
-	hasher.Write([]byte("facebook" + v.Name + v.Id))
+	hasher.Write([]byte("facebook" + v.Id))
 	username := hex.EncodeToString(hasher.Sum(nil))
 	session.Set("username", username)
 	r.JSON(200, map[string]string{"username": username})
@@ -204,9 +204,9 @@ func handleAccountLoginGameByFacebook(db *DaoDB, r render.Render, tokens oauth2.
 	}
 	resp.Body.Close()
 	hasher := md5.New()
-	hasher.Write([]byte("facebook" + v.Name + v.Id))
+	hasher.Write([]byte("facebook" + v.Id))
 	username := hex.EncodeToString(hasher.Sum(nil))
-	password := v.Id + v.Name + "facebook"
+	password := v.Id + "facebook"
 	// TODO
 	// find other way to do login!
 	session.Set("username", username)
@@ -241,16 +241,24 @@ func handleAccountLoginWeb(form AccountLoginForm, session sessions.Session, r re
 		return
 	}
 	session.Set("username", username)
-	r.JSON(200, map[string]string{
-		"success":  "logined!",
-		"username": username,
-	})
+	clientCall := &ClientCall{
+		Receiver: "world",
+		Method:   "handleSetLastUsername",
+		Params:   []interface{}{username},
+	}
+	r.JSON(200, clientCall)
 }
 
 func handleAccountLoginGameBySession(session sessions.Session, r render.Render, w *World) {
 	username := session.Get("username")
 	if username == nil {
-		r.JSON(200, map[string]string{"error": "not logined!"})
+		clientErr := []interface{}{"wrong username or password"}
+		clientCall := &ClientCall{
+			Receiver: "world",
+			Method:   "handleErrorLoginAccount",
+			Params:   clientErr,
+		}
+		r.JSON(200, clientCall)
 		return
 	}
 	base, _ := uuid.NewV4()

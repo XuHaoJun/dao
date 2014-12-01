@@ -505,6 +505,7 @@ func (w *World) LoginAccount(username string, password string, sock *wsConn) {
 		sock.SendClientCall(clientCall)
 		return
 	}
+	delete(w.accountLoginBySessionMap, username)
 	acc := foundAcc.Load(w)
 	w.accounts[acc.username] = acc
 	acc.Login(sock)
