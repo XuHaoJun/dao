@@ -147,6 +147,18 @@ func handleAccountRegisterByFacebook(db *DaoDB, r render.Render, tokens oauth2.T
 		db, r, configs)
 }
 
+func handleAccountLoginByFacebook(params martini.Params, db *DaoDB, r render.Render, tokens oauth2.Tokens, session sessions.Session) {
+	ltype := params["ltype"]
+	switch ltype {
+	case "Web":
+		handleAccountLoginWebByFacebook(db, r, tokens, session)
+	case "Game":
+		handleAccountLoginGameByFacebook(db, r, tokens, session)
+	default:
+		r.JSON(200, map[string]string{"error": "not match anything!"})
+	}
+}
+
 func handleAccountLoginWebByFacebook(db *DaoDB, r render.Render, tokens oauth2.Tokens, session sessions.Session) {
 	if tokens.Expired() || tokens.ProviderName() != "Facebook" {
 		r.Redirect("oauth2login?next=#home", 302)
@@ -177,7 +189,12 @@ func handleAccountLoginWebByFacebook(db *DaoDB, r render.Render, tokens oauth2.T
 	hasher.Write([]byte("facebook" + v.Id))
 	username := hex.EncodeToString(hasher.Sum(nil))
 	session.Set("username", username)
-	r.JSON(200, map[string]string{"username": username})
+	clientCall := &ClientCall{
+		Receiver: "world",
+		Method:   "handleSetLastUsername",
+		Params:   []interface{}{username},
+	}
+	r.JSON(200, clientCall)
 }
 
 func handleAccountLoginGameByFacebook(db *DaoDB, r render.Render, tokens oauth2.Tokens, session sessions.Session) {
@@ -210,12 +227,29 @@ func handleAccountLoginGameByFacebook(db *DaoDB, r render.Render, tokens oauth2.
 	// TODO
 	// find other way to do login!
 	session.Set("username", username)
-	r.JSON(200, map[string]string{"username": username, "password": password})
+	clientCall := &ClientCall{
+		Receiver: "world",
+		Method:   "loginAccount",
+		Params:   []interface{}{username, password},
+	}
+	r.JSON(200, clientCall)
 }
 
 type AccountLoginForm struct {
 	Username string `form:"username" binding:"required"`
 	Password string `form:"password" binding:"required"`
+}
+
+func handleAccountLogin(params martini.Params, form AccountLoginForm, session sessions.Session, r render.Render, db *DaoDB) {
+	ltype := params["ltype"]
+	switch ltype {
+	case "Web":
+		handleAccountLoginWeb(form, session, r, db)
+	case "Game":
+		handleAccountLoginGame(form, session, r, db)
+	default:
+		r.JSON(200, map[string]string{"error": "not match anything!"})
+	}
 }
 
 func handleAccountLoginWeb(form AccountLoginForm, session sessions.Session, r render.Render, db *DaoDB) {

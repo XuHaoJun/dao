@@ -298,12 +298,14 @@ func (s *Server) RunWeb() {
 		// create account
 		m.Get("/account/newByFacebook", oauth2.LoginRequired, handleAccountRegisterByFacebook)
 		// login account
+		m.Get("/account/loginByFacebook/:ltype", oauth2.LoginRequired, handleAccountLoginByFacebook)
 		m.Get("/account/loginGameByFacebook", oauth2.LoginRequired, handleAccountLoginGameByFacebook)
 		m.Get("/account/loginWebByFacebook", oauth2.LoginRequired, handleAccountLoginWebByFacebook)
 	}
 	// create account
 	m.Post("/account", binding.Bind(AccountRegisterFrom{}), handleAccountRegister)
 	// login account
+	m.Post("/account/login/:ltype", binding.Bind(AccountLoginForm{}), handleAccountLogin)
 	m.Post("/account/loginWeb", binding.Bind(AccountLoginForm{}), handleAccountLoginWeb)
 	m.Post("/account/loginGame", binding.Bind(AccountLoginForm{}), handleAccountLoginGame)
 	m.Get("/account/loginGamebySession", handleAccountLoginGameBySession)
