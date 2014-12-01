@@ -405,6 +405,17 @@ func (w *World) KickAllAccount() {
 	}
 }
 
+func (w *World) OnlineChars() map[string]Charer {
+	chars := make(map[string]Charer)
+	for _, acc := range w.accounts {
+		if acc.usingChar != nil {
+			name := acc.usingChar.name
+			chars[name] = acc.usingChar
+		}
+	}
+	return chars
+}
+
 func (w *World) OnlineAccountUsernames() []string {
 	names := make([]string, len(w.accounts))
 	i := 0
