@@ -1319,6 +1319,10 @@ func (c *Char) BuyItemFromOpeningShop(i int) {
 	}
 	c.dzeny -= baseItem.BuyPrice()
 	item, putedSlot := c.GetItem(baseItem)
+	if item == nil {
+		c.SendChatMessage("System", "", "You can't get item anymore!")
+		return
+	}
 	// client update
 	itemsUpdate := make(map[string]interface{})
 	iType := item.ItemTypeByBaseId()
