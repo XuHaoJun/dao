@@ -97,3 +97,11 @@ func (c *ClientCall) CastJSON(f reflect.Value) ([]reflect.Value, error) {
 	}
 	return in, nil
 }
+
+type ClientCalls struct {
+	ClientCalls []*ClientCall
+}
+
+func (cs *ClientCalls) Append(c *ClientCall) {
+	cs.ClientCalls = append(cs.ClientCalls, c)
+}
