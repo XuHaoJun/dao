@@ -54,18 +54,6 @@ func (conn *wsConn) writeRun() {
 			if err := conn.write(websocket.TextMessage, msg); err != nil {
 				return
 			}
-		case clientCall, ok := <-conn.sendClientCall:
-			if !ok {
-				conn.write(websocket.CloseMessage, []byte{})
-				return
-			}
-			msg, err := json.Marshal(clientCall)
-			if err != nil {
-				continue
-			}
-			if err := conn.write(websocket.TextMessage, msg); err != nil {
-				return
-			}
 		case clientCalls, ok := <-conn.sendClientCalls:
 			if !ok {
 				conn.write(websocket.CloseMessage, []byte{})
@@ -95,8 +83,8 @@ func (conn *wsConn) SendJSON(msg interface{}) (err error) {
 	return
 }
 
-func (conn *wsConn) SendClientCall(msg *ClientCall) {
-	conn.sendClientCall <- msg
+func (conn *wsConn) SendClientCall(msg ...*ClientCall) {
+	conn.sendClientCalls <- msg
 	return
 }
 
@@ -255,7 +243,6 @@ func NewWsConn(ws *websocket.Conn, hub *WsHub) *wsConn {
 		server:          hub.server,
 		account:         nil,
 		send:            make(chan []byte, 8),
-		sendClientCall:  make(chan *ClientCall, 1024),
 		sendClientCalls: make(chan []*ClientCall, 1024),
 	}
 }
