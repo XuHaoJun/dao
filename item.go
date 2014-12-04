@@ -544,7 +544,7 @@ const (
 	Shield    = 3
 	Golves    = 4
 	Belt      = 5
-	Boot      = 6
+	HandGuard = 6
 	Ring      = 7
 	Amulet    = 8
 	Pants     = 9
@@ -600,6 +600,10 @@ func (ue UsingEquips) Head() *Equipment {
 	return ue[Head]
 }
 
+func (ue UsingEquips) SetShoulders(e *Equipment) {
+	ue[Shoulders] = e
+}
+
 func (ue UsingEquips) Shoulders() *Equipment {
 	return ue[Shoulders]
 }
@@ -612,6 +616,14 @@ func (ue UsingEquips) Wrists() *Equipment {
 	return ue[Wrists]
 }
 
+func (ue UsingEquips) SetWrists(e *Equipment) {
+	ue[Wrists] = e
+}
+
+func (ue UsingEquips) SetHands(e *Equipment) {
+	ue[Hands] = e
+}
+
 func (ue UsingEquips) Hands() *Equipment {
 	return ue[Hands]
 }
@@ -620,8 +632,16 @@ func (ue UsingEquips) Waist() *Equipment {
 	return ue[Waist]
 }
 
+func (ue UsingEquips) SetWaist(e *Equipment) {
+	ue[Waist] = e
+}
+
 func (ue UsingEquips) Legs() *Equipment {
 	return ue[Legs]
+}
+
+func (ue UsingEquips) SetLegs(e *Equipment) {
+	ue[Legs] = e
 }
 
 func (ue UsingEquips) LeftFinger() *Equipment {

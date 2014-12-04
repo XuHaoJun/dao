@@ -1033,6 +1033,36 @@ func (c *Char) EquipBySlot(slot int) {
 			hasEquiped = true
 			btype = Neck
 		}
+	case Golves:
+		if c.usingEquips.Hands() == nil {
+			c.usingEquips.SetHands(e)
+			hasEquiped = true
+			btype = Hands
+		}
+	case Pants:
+		if c.usingEquips.Legs() == nil {
+			c.usingEquips.SetLegs(e)
+			hasEquiped = true
+			btype = Legs
+		}
+	case Belt:
+		if c.usingEquips.Waist() == nil {
+			c.usingEquips.SetWaist(e)
+			hasEquiped = true
+			btype = Waist
+		}
+	case Pauldrons:
+		if c.usingEquips.Shoulders() == nil {
+			c.usingEquips.SetShoulders(e)
+			hasEquiped = true
+			btype = Shoulders
+		}
+	case HandGuard:
+		if c.usingEquips.Wrists() == nil {
+			c.usingEquips.SetWrists(e)
+			hasEquiped = true
+			btype = Wrists
+		}
 	case Shield:
 		if c.usingEquips.LeftHand() == nil {
 			c.usingEquips.SetLeftHand(e)
