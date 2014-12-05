@@ -2,6 +2,7 @@ package dao
 
 import (
 	"encoding/json"
+	"flag"
 	"github.com/go-martini/martini"
 	"github.com/gorilla/websocket"
 	"github.com/martini-contrib/binding"
@@ -153,32 +154,72 @@ func (hub *WsHub) Run() {
 }
 
 type Server struct {
-	world   *World
-	db      *DaoDB
-	wsHub   *WsHub
-	configs *DaoConfigs
+	world            *World
+	db               *DaoDB
+	wsHub            *WsHub
+	configs          *DaoConfigs
+	commandLineFlags *ServerCommandLineFlags
 }
 
-func NewServer(readConfig bool) *Server {
-	var w *World
-	var err error
-	var configs *DaoConfigs
-	if readConfig {
-		configs = NewDaoConfigsByConfigFiles()
-		w, err = NewWorldByConfig(configs)
+type ServerCommandLineFlags struct {
+	HttpPort          int
+	EnableConfigFiles bool
+	WebsocketPort     int
+	ConfigDirPath     string
+	MongoDBURL        string
+	ProductionMode    bool
+}
+
+func (s *Server) parseCommandLineFlags() {
+	scFlags := s.commandLineFlags
+	flag.IntVar(&scFlags.HttpPort, "httpPort",
+		3000, "Http port")
+	flag.IntVar(&scFlags.WebsocketPort, "websocketPort",
+		3001, "Main game loop connection websocket port")
+	flag.BoolVar(&scFlags.EnableConfigFiles, "enableConfigFiles",
+		true, "Read config files.")
+	flag.StringVar(&scFlags.ConfigDirPath, "configDir",
+		"./", "Dao Configuraiton dir.")
+	flag.StringVar(&scFlags.MongoDBURL, "mongodbURL",
+		"127.0.0.1", "MongoDB URL.")
+	// TODO
+	// production mode not imple!
+	flag.BoolVar(&scFlags.ProductionMode, "production",
+		false, "Enable production will use another db.")
+	flag.Parse()
+}
+
+func (s *Server) useCommandLienFlags() {
+	scFlags := s.commandLineFlags
+	s.configs.ServerConfigs.HttpPort = scFlags.HttpPort
+	s.configs.ServerConfigs.WebsocketPort = scFlags.WebsocketPort
+	s.configs.MongoDBConfigs.URL = scFlags.MongoDBURL
+}
+
+func NewServer() (ds *Server, err error) {
+	ds = &Server{
+		commandLineFlags: &ServerCommandLineFlags{
+			ProductionMode: false,
+		},
+	}
+	ds.parseCommandLineFlags()
+	if ds.commandLineFlags.EnableConfigFiles {
+		ds.configs = NewDaoConfigs(ds.commandLineFlags.ConfigDirPath)
 	} else {
-		configs = NewDefaultDaoConfigs()
-		w, err = NewWorldByConfig(configs)
+		ds.configs = NewDaoConfigs("./")
 	}
+	ds.useCommandLienFlags()
+	ds.configs.ReloadConfigFiles()
+	ds.db, err = NewDaoDB(ds.configs.MongoDBConfigs.URL,
+		ds.configs.MongoDBConfigs.DBName)
 	if err != nil {
 		panic(err)
 	}
-	db, err := NewDaoDB(configs.MongoDBConfigs.URL,
-		configs.MongoDBConfigs.DBName)
+	ds.world, err = NewWorld(ds.db.CloneSession(), ds.configs)
 	if err != nil {
 		panic(err)
 	}
-	hub := &WsHub{
+	ds.wsHub = &WsHub{
 		connections: make(map[*wsConn]struct{}),
 		register:    make(chan *wsConn),
 		unregister:  make(chan *wsConn),
@@ -189,15 +230,9 @@ func NewServer(readConfig bool) *Server {
 		},
 		Quit: make(chan struct{}),
 	}
-	ds := &Server{
-		world:   w,
-		wsHub:   hub,
-		db:      db,
-		configs: configs,
-	}
-	w.server = ds
-	hub.server = ds
-	return ds
+	ds.world.server = ds
+	ds.wsHub.server = ds
+	return
 }
 
 func (s *Server) HandleSignal() {
@@ -257,7 +292,7 @@ func (s *Server) RunWebSocket() {
 	m.MapTo(r, (*martini.Routes)(nil))
 	m.Map(s)
 	m.Action(r.Handle)
-	websocketPort := s.configs.ServerConfigs.WebSocketPort
+	websocketPort := s.configs.ServerConfigs.WebsocketPort
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(websocketPort), m))
 }
 

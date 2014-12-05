@@ -71,12 +71,6 @@ type WorldClientCall interface {
 	LoginAccountBySessionToken(username string, token string, sock *wsConn)
 }
 
-func NewWorldByConfig(dc *DaoConfigs) (w *World, err error) {
-	w, err = NewWorld(dc.WorldConfigs.Name,
-		dc.MongoDBConfigs.URL, dc.MongoDBConfigs.DBName, dc)
-	return
-}
-
 type WorldTimer struct {
 	timer    *time.Timer
 	duration time.Duration
@@ -84,23 +78,14 @@ type WorldTimer struct {
 	call     reflect.Value
 }
 
-func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*World, error) {
-	db, err := NewDaoDB(mgourl, dbname)
-	if err != nil {
-		return nil, err
-	}
-	go db.UpdateAccountIndex()
-	//
-	err = db.ImportDefaultJsonDB()
-	if err != nil {
-		return nil, err
-	}
+func NewWorld(db *DaoDB, configs *DaoConfigs) (*World, error) {
+	name := configs.WorldConfigs.Name
 	w := &World{
 		name:                     name,
 		accounts:                 make(map[string]*Account),
 		scenes:                   make(map[string]*Scene),
 		db:                       db,
-		configs:                  NewDefaultDaoConfigs(),
+		configs:                  NewDaoConfigs("./"),
 		logger:                   log.New(os.Stdout, "[dao-"+name+"] ", 0),
 		LogoutAccount:            make(chan *Account, 8),
 		SceneObjecterChangeScene: make(chan *ChangeScene, 8),
@@ -134,7 +119,7 @@ func NewWorld(name string, mgourl string, dbname string, configs *DaoConfigs) (*
 	// interpreter
 	w.interpreter = NewWorldInterpreter(w)
 	w.Emitter = emission.NewEmitterOtto(w.interpreter.vm)
-	err = w.interpreter.LoadScripts()
+	err := w.interpreter.LoadScripts()
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +194,10 @@ func (w *World) WorldClientCall() WorldClientCall {
 }
 
 func (w *World) Run() {
+	err := w.db.ImportDefaultJsonDB()
+	if err != nil {
+		panic(err)
+	}
 	defer w.db.session.Close()
 	var wg sync.WaitGroup
 	go w.interpreter.Run()

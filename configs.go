@@ -89,24 +89,25 @@ func (conf *SceneConfigs) SetScenes(scenes map[string]*Scene) {
 
 type ServerConfigs struct {
 	HttpPort      int    `yaml:"httpPort"`
+	WebsocketPort int    `yaml:"websocketPort"`
 	EnableOauth2  bool   `yaml:"enableOauth2"`
-	WebSocketPort int    `yaml:"websocketPort"`
 	SessionKey    string `yaml:"sessionKey"`
 }
 
 type DaoConfigs struct {
-	CharConfigs    *CharConfigs
-	AccountConfigs *AccountConfigs
-	WorldConfigs   *WorldConfigs
-	MongoDBConfigs *MongoDBConfigs
-	ServerConfigs  *ServerConfigs
-	ItemConfigs    *ItemConfigs
-	SceneConfigs   *SceneConfigs
-	Oauth2Configs  *Oauth2Configs
-	pathMapping    map[string]interface{}
+	CharConfigs     *CharConfigs
+	AccountConfigs  *AccountConfigs
+	WorldConfigs    *WorldConfigs
+	MongoDBConfigs  *MongoDBConfigs
+	ServerConfigs   *ServerConfigs
+	ItemConfigs     *ItemConfigs
+	SceneConfigs    *SceneConfigs
+	Oauth2Configs   *Oauth2Configs
+	ConfigDirPrefix string
+	pathMapping     map[string]interface{}
 }
 
-func NewDefaultDaoConfigs() *DaoConfigs {
+func NewDaoConfigs(dirPrefix string) *DaoConfigs {
 	dc := &DaoConfigs{
 		CharConfigs: &CharConfigs{
 			InitDzeny:    0,
@@ -129,7 +130,7 @@ func NewDefaultDaoConfigs() *DaoConfigs {
 		},
 		ServerConfigs: &ServerConfigs{
 			HttpPort:      3000,
-			WebSocketPort: 3001,
+			WebsocketPort: 3001,
 			SessionKey:    "DaoSecret",
 		},
 		ItemConfigs: &ItemConfigs{
@@ -146,25 +147,23 @@ func NewDefaultDaoConfigs() *DaoConfigs {
 			},
 			Custom: make(map[string]*SceneBaseConfig),
 		},
-		Oauth2Configs: &Oauth2Configs{},
+		Oauth2Configs:   &Oauth2Configs{},
+		ConfigDirPrefix: "./",
+	}
+	if dirPrefix != "" {
+		dc.ConfigDirPrefix = dirPrefix
 	}
 	pathMapping := map[string]interface{}{
-		"./conf/char.yaml":    dc.CharConfigs,
-		"./conf/account.yaml": dc.AccountConfigs,
-		"./conf/world.yaml":   dc.WorldConfigs,
-		"./conf/mongodb.yaml": dc.MongoDBConfigs,
-		"./conf/server.yaml":  dc.ServerConfigs,
-		"./conf/item.yaml":    dc.ItemConfigs,
-		"./conf/scene.yaml":   dc.SceneConfigs,
-		"./conf/oauth2.yaml":  dc.Oauth2Configs,
+		dc.ConfigDirPrefix + "conf/char.yaml":    dc.CharConfigs,
+		dc.ConfigDirPrefix + "conf/account.yaml": dc.AccountConfigs,
+		dc.ConfigDirPrefix + "conf/world.yaml":   dc.WorldConfigs,
+		dc.ConfigDirPrefix + "conf/mongodb.yaml": dc.MongoDBConfigs,
+		dc.ConfigDirPrefix + "conf/server.yaml":  dc.ServerConfigs,
+		dc.ConfigDirPrefix + "conf/item.yaml":    dc.ItemConfigs,
+		dc.ConfigDirPrefix + "conf/scene.yaml":   dc.SceneConfigs,
+		dc.ConfigDirPrefix + "conf/oauth2.yaml":  dc.Oauth2Configs,
 	}
 	dc.pathMapping = pathMapping
-	return dc
-}
-
-func NewDaoConfigsByConfigFiles() *DaoConfigs {
-	dc := NewDefaultDaoConfigs()
-	dc.ReloadConfigFiles()
 	return dc
 }
 
