@@ -116,10 +116,6 @@ func handleAccountInfo(db *DaoDB, session sessions.Session, r render.Render, w *
 }
 
 func handleAccountRegisterByFacebook(db *DaoDB, r render.Render, tokens oauth2.Tokens, configs *DaoConfigs) {
-	if tokens.Expired() || tokens.ProviderName() != "Facebook" {
-		r.Redirect("oauth2login?next=#loginFacebook", 302)
-		return
-	}
 	url := "https://graph.facebook.com/me?access_token=" + tokens.Access()
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
@@ -303,7 +299,7 @@ func handleAccountLoginGameBySession(session sessions.Session, r render.Render, 
 	}
 	clientCall := &ClientCall{
 		Receiver: "world",
-		Method:   "handleLoginAccountBySessionToken",
+		Method:   "loginAccountBySessionToken",
 		Params:   []interface{}{username, token},
 	}
 	session.Set("username", username.(string))
