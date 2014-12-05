@@ -242,9 +242,15 @@ func (w *World) Run() {
 		case b := <-w.BioReborn:
 			b.Reborn()
 		case <-w.Quit:
+			wg := &sync.WaitGroup{}
+			wg.Add(len(w.accounts))
 			for _, acc := range w.accounts {
-				acc.Logout()
+				go func(a *Account) {
+					a.Logout()
+					wg.Done()
+				}(acc)
 			}
+			wg.Wait()
 			w.Quit <- struct{}{}
 			return
 		}
