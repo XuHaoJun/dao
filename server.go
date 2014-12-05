@@ -241,18 +241,6 @@ func NewServer() (ds *Server, err error) {
 	return
 }
 
-func (s *Server) HandleSignal() {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	for {
-		select {
-		case <-c:
-			s.ShutDown()
-			break
-		}
-	}
-}
-
 func (s *Server) ShutDown() {
 	s.wsHub.Quit <- struct{}{}
 	s.world.Quit <- struct{}{}
@@ -347,9 +335,21 @@ func (s *Server) RunWeb() {
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(httpPort), m))
 }
 
+func (s *Server) run() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	for {
+		select {
+		case <-c:
+			s.ShutDown()
+			break
+		}
+	}
+}
+
 func (s *Server) Run() {
 	go s.RunWeb()
 	go s.RunWebSocket()
-	go s.HandleSignal()
-	s.world.Run()
+	go s.world.Run()
+	s.run()
 }

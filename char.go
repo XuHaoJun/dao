@@ -77,6 +77,7 @@ type Charer interface {
 	Logout()
 	OnReceiveClientCall(sender ClientCallPublisher, c *ClientCall)
 	Save()
+	SaveByDumpDB(dump *CharDumpDB)
 	SendClientCall(msg *ClientCall)
 	SendClientCalls(msg []*ClientCall)
 	CharClientCall() CharClientCall
@@ -646,17 +647,21 @@ func (c *Char) CharClientCall() CharClientCall {
 	return c
 }
 
-func (c *Char) saveChar(accs *mgo.Collection) {
+func (c *Char) saveChar(accs *mgo.Collection, dump *CharDumpDB) {
 	ci := strconv.Itoa(c.slotIndex)
 	cii := "chars." + ci
-	update := bson.M{"$set": bson.M{cii: c.DumpDB()}}
+	update := bson.M{"$set": bson.M{cii: dump}}
 	if err := accs.UpdateId(c.account.bsonId, update); err != nil {
 		panic(err)
 	}
 }
 
+func (c *Char) SaveByDumpDB(dump *CharDumpDB) {
+	c.saveChar(c.account.world.db.CloneSession().accounts, dump)
+}
+
 func (c *Char) Save() {
-	c.saveChar(c.account.world.db.accounts)
+	c.saveChar(c.account.world.db.accounts, c.DumpDB())
 }
 
 func (c *Char) PickItem(sbId int) {

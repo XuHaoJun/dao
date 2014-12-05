@@ -36,7 +36,7 @@ func (d *DaoDB) UpdateAccountIndex() {
 }
 
 func (d *DaoDB) ImportDefaultJsonDB() error {
-	itemCmd := exec.Command("mongoimport", "--db", d.dbName,
+	itemCmd := exec.Command("mongoimport", "--host", d.url, "--db", d.dbName,
 		"--collection", "items", "--type", "json",
 		"--file", "db/item_db.json", "--quiet", "--jsonArray",
 		"--upsert", "--upsertFields", "item.baseId")

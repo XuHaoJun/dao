@@ -15,17 +15,12 @@ var (
 )
 
 type Bioer interface {
+	SceneObjecter
 	World() *World
 	Name() string
 	SetName(name string)
-	Id() int
-	SetId(int)
 	Move(x, y float32)
 	ShutDownMove()
-	Body() *chipmunk.Body
-	SetBody(*chipmunk.Body)
-	Scene() *Scene
-	SetScene(*Scene)
 	BioClient() *BioClient
 	BioClientBasic() *BioClientBasic
 	BioClientAttributes() *BioClientAttributes

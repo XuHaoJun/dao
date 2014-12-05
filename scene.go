@@ -24,6 +24,8 @@ type Scene struct {
 	defaultGroundTextureName string
 	//
 	autoClearItemDuration time.Duration
+	//
+	autoSaveCharsDuration time.Duration
 }
 
 type SceneInfo struct {
@@ -46,6 +48,7 @@ func NewScene(w *World, name string) *Scene {
 		defaultGroundTextureName: "grass",
 		//
 		autoClearItemDuration: time.Minute * 5,
+		autoSaveCharsDuration: time.Minute * 30,
 	}
 }
 
@@ -119,6 +122,15 @@ func (s *Scene) Update(delta float32) {
 		if isItem &&
 			item.InSceneDuration() >= s.autoClearItemDuration {
 			s.Remove(item.SceneObjecter())
+			break
+		}
+		char, isChar := sb.(Charer)
+		if isChar &&
+			char.InSceneDuration() >= s.autoSaveCharsDuration {
+			char.SetInSceneDuration(time.Duration(0))
+			dump := char.DumpDB()
+			go char.SaveByDumpDB(dump)
+			break
 		}
 	}
 }

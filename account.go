@@ -184,7 +184,9 @@ func (a *Account) CreateChar(name string) {
 		char.slotIndex = len(a.chars)
 		a.chars = append(a.chars, char)
 		char.GetInitItems()
-		char.Save()
+		dump := char.DumpDB()
+		go char.SaveByDumpDB(dump)
+		// client
 		a.world.logger.Println(
 			"Account:", a.username,
 			"created a new char:",

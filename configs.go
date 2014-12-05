@@ -53,6 +53,7 @@ type WorldConfigs struct {
 }
 
 type SceneBaseConfig struct {
+	AutoSaveCharsDuration time.Duration `yaml:"autoSaveCharsDuration"`
 	AutoClearItemDuration time.Duration `yaml:"autoClearItemDuration"`
 }
 
@@ -77,11 +78,13 @@ func (conf *SceneConfigs) SetScenes(scenes map[string]*Scene) {
 	for name, scene := range scenes {
 		if conf.Default != nil {
 			scene.autoClearItemDuration = conf.Default.AutoClearItemDuration
+			scene.autoSaveCharsDuration = conf.Default.AutoClearItemDuration
 		}
 		if conf.Custom != nil {
 			customConfig, ok := conf.Custom[name]
 			if ok {
 				scene.autoClearItemDuration = customConfig.AutoClearItemDuration
+				scene.autoSaveCharsDuration = customConfig.AutoSaveCharsDuration
 			}
 		}
 	}
@@ -144,6 +147,7 @@ func NewDaoConfigs(dirPrefix string) *DaoConfigs {
 		SceneConfigs: &SceneConfigs{
 			Default: &SceneBaseConfig{
 				AutoClearItemDuration: 5 * time.Minute,
+				AutoSaveCharsDuration: 30 * time.Minute,
 			},
 			Custom: make(map[string]*SceneBaseConfig),
 		},
@@ -191,10 +195,12 @@ func (dc *DaoConfigs) ReloadConfigFiles() {
 				conf := config.(*SceneConfigs)
 				if conf.Default != nil {
 					conf.Default.AutoClearItemDuration *= time.Second
+					conf.Default.AutoSaveCharsDuration *= time.Second
 				}
 				if conf.Custom != nil {
 					for _, c := range conf.Custom {
 						c.AutoClearItemDuration *= time.Second
+						c.AutoSaveCharsDuration *= time.Second
 					}
 				}
 			}
