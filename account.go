@@ -139,7 +139,7 @@ func (a *Account) LoginChar(charSlot int) {
 	//
 	clientCallsPass := &ClientCalls{clientCalls}
 	a.world.Emit("accountLoginChar", a, char, clientCallsPass)
-	a.sock.SendClientCalls(clientCallsPass.ClientCalls)
+	a.sock.SendClientCalls(clientCallsPass.clientCalls)
 }
 
 func (a *Account) Login(sock *wsConn) {

@@ -1,11 +1,17 @@
 package dao
 
+import (
+	"reflect"
+)
+
 type Cache struct {
-	UseSelfFuncs map[int]func(b Bioer)
+	WorldClientCallMethods map[string]reflect.Value
+	UseSelfFuncs           map[int]func(b Bioer)
 }
 
 func NewCache() *Cache {
 	return &Cache{
-		UseSelfFuncs: make(map[int]func(b Bioer)),
+		WorldClientCallMethods: make(map[string]reflect.Value),
+		UseSelfFuncs:           make(map[int]func(b Bioer)),
 	}
 }

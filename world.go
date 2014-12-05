@@ -320,8 +320,15 @@ func (w *World) DoParseClientCall(clientCall *ClientCall, conn *wsConn) {
 			return
 		}
 		v := w.WorldClientCall()
-		f := reflect.ValueOf(v).MethodByName(clientCall.Method)
-		if f.IsValid() == false {
+		var f reflect.Value
+		f, isFound := w.cache.WorldClientCallMethods[clientCall.Method]
+		if !isFound {
+			f = reflect.ValueOf(v).MethodByName(clientCall.Method)
+			if f.IsValid() {
+				w.cache.WorldClientCallMethods[clientCall.Method] = f
+			}
+		}
+		if !f.IsValid() {
 			return
 		}
 		if clientCall.Method == "LoginAccount" ||
