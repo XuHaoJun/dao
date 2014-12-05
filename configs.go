@@ -167,6 +167,10 @@ func NewDaoConfigs(dirPrefix string) *DaoConfigs {
 	return dc
 }
 
+func (dc *DaoConfigs) LoadConfigFiles() {
+	dc.ReloadConfigFiles()
+}
+
 func (dc *DaoConfigs) ReloadConfigFiles() {
 	var wg sync.WaitGroup
 	wg.Add(len(dc.pathMapping))

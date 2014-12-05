@@ -191,9 +191,15 @@ func (s *Server) parseCommandLineFlags() {
 
 func (s *Server) useCommandLienFlags() {
 	scFlags := s.commandLineFlags
-	s.configs.ServerConfigs.HttpPort = scFlags.HttpPort
-	s.configs.ServerConfigs.WebsocketPort = scFlags.WebsocketPort
-	s.configs.MongoDBConfigs.URL = scFlags.MongoDBURL
+	if scFlags.HttpPort != 3000 {
+		s.configs.ServerConfigs.HttpPort = scFlags.HttpPort
+	}
+	if scFlags.WebsocketPort != 3001 {
+		s.configs.ServerConfigs.WebsocketPort = scFlags.WebsocketPort
+	}
+	if scFlags.MongoDBURL != "127.0.0.1" {
+		s.configs.MongoDBConfigs.URL = scFlags.MongoDBURL
+	}
 }
 
 func NewServer() (ds *Server, err error) {
@@ -208,8 +214,8 @@ func NewServer() (ds *Server, err error) {
 	} else {
 		ds.configs = NewDaoConfigs("./")
 	}
+	ds.configs.LoadConfigFiles()
 	ds.useCommandLienFlags()
-	ds.configs.ReloadConfigFiles()
 	ds.db, err = NewDaoDB(ds.configs.MongoDBConfigs.URL,
 		ds.configs.MongoDBConfigs.DBName)
 	if err != nil {
