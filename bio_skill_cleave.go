@@ -148,7 +148,7 @@ func (c *CleaveState) HitTarget(b Bioer) {
 	if c.skill.owner == nil || b.IsDied() {
 		return
 	}
-	b.TakeDamage(c.battleDamage, c.skill.owner)
+	b.TakeDamage(*c.battleDamage, c.skill.owner)
 	fmt.Println(c.skill.owner.Name(), "cleave hit target: ", b.Name(),
 		"damage: ", c.battleDamage, "b.hp: ", b.Hp())
 }

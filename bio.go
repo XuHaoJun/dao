@@ -52,7 +52,7 @@ type Bioer interface {
 	BattleDef() *BattleDef
 	//
 	IsDied() bool
-	TakeDamage(d *BattleDamage, b Bioer)
+	TakeDamage(d BattleDamage, b Bioer)
 	Reborn()
 	//
 	OnKillFunc() func(target Bioer)
@@ -841,7 +841,7 @@ func (b *Bio) BattleDef() *BattleDef {
 	}
 }
 
-func (b *Bio) TakeDamage(battleDamage *BattleDamage, attacker Bioer) {
+func (b *Bio) TakeDamage(battleDamage BattleDamage, attacker Bioer) {
 	if b.IsDied() {
 		return
 	}

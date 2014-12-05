@@ -176,7 +176,7 @@ func (f *FireBallState) HitTarget(b Bioer) {
 	if f.skill.owner == nil || b.IsDied() {
 		return
 	}
-	b.TakeDamage(f.battleDamage, f.skill.owner)
+	b.TakeDamage(*f.battleDamage, f.skill.owner)
 	fmt.Println(f.skill.owner.Name(), "fire ball hit target: ", b.Name(),
 		"damage: ", f.battleDamage, "b.hp: ", b.Hp())
 }

@@ -1462,7 +1462,7 @@ func (c *Char) CancelOpeningShop() {
 	c.SendClientCall(clientCall)
 }
 
-func (c *Char) TakeDamage(d *BattleDamage, attacker Bioer) {
+func (c *Char) TakeDamage(d BattleDamage, attacker Bioer) {
 	c.Bio.TakeDamage(d, attacker)
 	clientCall := &ClientCall{
 		Receiver: "char",
