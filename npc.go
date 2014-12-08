@@ -120,10 +120,6 @@ func (n *Npc) SceneObjecter() SceneObjecter {
 	return n
 }
 
-func (n *Npc) PublishClientCall(cc *ClientCall) {
-	n.scene.DispatchClientCall(n, cc)
-}
-
 func (n *Npc) NpcClientBasic() *NpcClientBasic {
 	bClient := n.Bio.BioClientBasic()
 	return &NpcClientBasic{

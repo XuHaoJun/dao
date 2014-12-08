@@ -135,7 +135,7 @@ func (s *Scene) Update(delta float32) {
 }
 
 type ClientCallPublisher interface {
-	PublishClientCall(c *ClientCall)
+	PublishClientCall(c ...*ClientCall)
 }
 
 func (s *Scene) DispatchClientCall(sender ClientCallPublisher, c *ClientCall) {

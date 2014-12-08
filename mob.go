@@ -151,10 +151,6 @@ func (m *Mob) MobClientBasic() *MobClientBasic {
 	}
 }
 
-func (m *Mob) PublishClientCall(cc *ClientCall) {
-	m.scene.DispatchClientCall(m, cc)
-}
-
 func (m *Mob) AfterUpdate(delta float32) {
 	m.Bio.AfterUpdate(delta)
 	if m.aiUpdate != nil {

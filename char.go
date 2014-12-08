@@ -49,8 +49,6 @@ type CharClientCall interface {
 	DropItem(baseId int, slotIndex int)
 	PickItem(sbId int)
 	UseItemBySlot(slot int)
-	// NormalAttackByMid(mid int)
-	// PickItemById(id int)
 	// npc
 	TalkNpcById(nid int)
 	CancelTalkingNpc()
@@ -62,13 +60,14 @@ type CharClientCall interface {
 	// skill
 	UseFireBall()
 	UseSkillByBaseId(sid int)
+	// hotkey
 	SetSkillHotKey(index int, sid int)
 	SetLeftSkillHotKey(sid int)
 	SetRightSkillHotKey(sid int)
 	ClearNormalHotKey(index int)
 	ClearSkillHotKey(index int)
 	SetNormalHotKey(index int, itemBaseId int, slotIndex int)
-	//
+	// party
 	JoinPartyByCharName(name string)
 }
 
@@ -817,8 +816,8 @@ func (c *Char) Login() {
 func (c *Char) OnKillFunc() func(target Bioer) {
 	return func(target Bioer) {
 		// for quest check or add zeny when kill
-		mob, ok := target.(Mober)
-		if !ok {
+		mob, isMob := target.(Mober)
+		if !isMob {
 			return
 		}
 		c.dzeny += mob.Level() * 100
@@ -835,25 +834,17 @@ func (c *Char) OnKillFunc() func(target Bioer) {
 	}
 }
 
-func (c *Char) NormalAttackByMid(mid int) {
-	if mid <= 0 || c.scene == nil {
-		return
-	}
-	mob := c.scene.FindMobById(mid)
-	if mob == nil {
-		return
-	}
-	// c.NormalAttack(mob.Bioer())
-}
-
 func (c *Char) Logout() {
 	c.account.Logout()
 }
 
 func (c *Char) JoinPartyByCharName(name string) {
-	for _, cc := range c.world.OnlineChars() {
-		party := cc.Party()
-		if cc.Name() == name && party != nil {
+	for _, anotherChar := range c.world.OnlineChars() {
+		if name == anotherChar.Name() {
+			continue
+		}
+		party := anotherChar.Party()
+		if anotherChar.Name() == name && party != nil {
 			c.JoinParty(party)
 			return
 		}
@@ -977,23 +968,24 @@ func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall
 	if c.scene == nil {
 		return
 	}
-	//   workaround way: skip self,
-	// should use another way like add timeStap.
-	if cc.Method == "handleMoveStateChange" &&
-		cc.Params[0] == c.id {
-		return
-	}
-	if cc.Method == "handleParty" {
+	switch cc.Method {
+	case "handleMoveStateChange":
+		//   workaround way: skip self,
+		// should use another way like add timeStap.
+		if cc.Params[0] == c.id {
+			return
+		}
+	case "handlePartyAdd", "handlePartyRemove":
 		bio, isBio := publisher.(Bioer)
 		if isBio && c.party == bio.Party() {
 			c.sock.SendClientCall(cc)
 			return
 		}
-	}
-	if cc.Method == "handleChatMessage" &&
-		cc.Params[0].(*ChatMessageClient).ChatType != "Local" {
-		c.sock.SendClientCall(cc)
-		return
+	case "handleChatMessage":
+		if cc.Params[0].(*ChatMessageClient).ChatType != "Local" {
+			c.sock.SendClientCall(cc)
+			return
+		}
 	}
 	sb, ok := publisher.(SceneObjecter)
 	if !ok {
@@ -1009,13 +1001,6 @@ func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall
 	default:
 		return
 	}
-}
-
-func (c *Char) PublishClientCall(cc *ClientCall) {
-	if c.scene == nil {
-		return
-	}
-	c.scene.DispatchClientCall(c, cc)
 }
 
 func (c *Char) EquipBySlot(slot int) {
@@ -1569,67 +1554,3 @@ func (c *Char) Reborn() {
 	}
 	c.SendClientCalls(clientCalls)
 }
-
-// func (c *Char) DoAddItem(itemer Itemer) {
-// 	switch item := itemer.(type) {
-// 	case *EtcItem:
-// 		for i, eitem := range c.items.etcItem {
-// 			if eitem == nil {
-// 				c.items.etcItem[i] = item
-// 				break
-// 			}
-// 		}
-// 	case *Equipment:
-// 		for i, eitem := range c.items.equipment {
-// 			if eitem == nil {
-// 				c.items.equipment[i] = item
-// 				break
-// 			}
-// 		}
-// 	case *UseSelfItem:
-// 		for i, uitem := range c.items.useSelfItem {
-// 			if uitem == nil {
-// 				c.items.useSelfItem[i] = item
-// 				break
-// 			}
-// 		}
-// 	}
-// }
-
-// func (c *Char) AddItem(itemer Itemer) {
-// 	c.DoJob(func() {
-// 		c.DoAddItem(itemer)
-// 	})
-// }
-
-// func (c *Char) DoPickItem(item Itemer) {
-// 	item.Lock()
-// 	defer item.Unlock()
-// 	if item.GetScene() == nil {
-// 		return
-// 	}
-// 	c.DoAddItem(item)
-// 	item.GetScene().DeleteItem(item)
-// 	item.DoSetScene(nil)
-// }
-
-// // TODO
-// // func add pick item check func
-
-// func (c *Char) PickItemById(id int) {
-// 	c.DoJob(func() {
-// 		if id < 0 {
-// 			return
-// 		}
-// 		item := c.scene.FindItemId(id)
-// 		if item == nil {
-// 			return
-// 		}
-// 		c.DoPickItem(item)
-// 		c.world.logger.Println("Char:", c.name, "pick up", item.Name())
-// 	})
-// }
-
-// func (c *Char) MoveByXY(x float64, y float64) {
-// 	c.Move(vect.Vect{X: vect.Float(x), Y: vect.Float(y)})
-// }

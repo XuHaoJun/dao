@@ -606,11 +606,13 @@ func (b *Bio) ClientCallPublisher() ClientCallPublisher {
 	return b
 }
 
-func (b *Bio) PublishClientCall(c *ClientCall) {
+func (b *Bio) PublishClientCall(cs ...*ClientCall) {
 	if b.scene == nil {
 		return
 	}
-	b.scene.DispatchClientCall(b, c)
+	for _, c := range cs {
+		b.scene.DispatchClientCall(b.clientCallPublisher, c)
+	}
 }
 
 func (b *Bio) Level() int {
@@ -790,7 +792,7 @@ func (b *Bio) JoinParty(p *Party) {
 	b.party.Add(b.partyer)
 	clientCall := &ClientCall{
 		Receiver: "char",
-		Method:   "handleParty",
+		Method:   "handlePartyAdd",
 		Params: []interface{}{map[string]interface{}{
 			"name":  b.name,
 			"level": b.level,
@@ -816,6 +818,15 @@ func (b *Bio) LeaveParty() {
 	b.party.Remove(b.partyer)
 	delete(b.world.partys, b.party.uuid)
 	b.party = nil
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handlePartyRemove",
+		Params: []interface{}{map[string]interface{}{
+			"name":  b.name,
+			"level": b.level,
+		}},
+	}
+	b.clientCallPublisher.PublishClientCall(clientCall)
 }
 
 type ChatMessageClient struct {
@@ -959,8 +970,7 @@ func (b *Bio) ItemQuickHeal(n int, effectId int) bool {
 			},
 		},
 	}
-	b.clientCallPublisher.PublishClientCall(clientCall1)
-	b.clientCallPublisher.PublishClientCall(clientCall2)
+	b.clientCallPublisher.PublishClientCall(clientCall1, clientCall2)
 	return true
 }
 

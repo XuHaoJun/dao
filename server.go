@@ -26,7 +26,6 @@ type wsConn struct {
 	account         *Account
 	readQuit        chan struct{}
 	send            chan []byte
-	sendClientCall  chan *ClientCall
 	sendClientCalls chan []*ClientCall
 }
 
