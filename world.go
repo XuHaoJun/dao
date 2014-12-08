@@ -25,6 +25,7 @@ type World struct {
 	accounts map[string]*Account
 	scenes   map[string]*Scene
 	timers   map[*WorldTimer]*WorldTimer
+	partys   map[string]*Party
 	db       *DaoDB
 	configs  *DaoConfigs
 	logger   *log.Logger
@@ -94,6 +95,7 @@ func NewWorld(db *DaoDB, configs *DaoConfigs) (*World, error) {
 		InterpreterTimer:         make(chan *OttoTimer, 8),
 		worldTimer:               make(chan *WorldTimer, 128),
 		timers:                   make(map[*WorldTimer]*WorldTimer),
+		partys:                   make(map[string]*Party),
 		BioReborn:                make(chan Bioer, 10240),
 		accountLoginBySessionMap: make(map[string]string, 32),
 		addAccountLoginBySession: make(chan *AccountLoginBySession, 8),
@@ -711,4 +713,10 @@ func (w *World) TimerEval(timer *WorldTimer) {
 	} else {
 		delete(w.timers, timer)
 	}
+}
+
+func (w *World) NewParty() *Party {
+	party := NewParty()
+	w.partys[party.uuid] = party
+	return party
 }

@@ -70,7 +70,8 @@ func NewMob(w *World) *Mob {
 	}
 	mob.bodyViewId = 10001
 	mob.clientCallPublisher = mob
-	mob.Bio.skillUser = mob.Bioer()
+	mob.Bio.skillUser = mob
+	mob.Bio.partyer = mob
 	mob.body.UserData = mob
 	mob.viewAOIState = NewBioViewAOIState(200, mob.Bio)
 	mob.OnBeKilled = mob.OnBeKilledFunc()

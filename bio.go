@@ -54,6 +54,11 @@ type Bioer interface {
 	// imple Stringer
 	String() string
 	ItemQuickRandHeal(min int, max int, effectId int) bool
+	// party
+	Party() *Party
+	SetParty(p *Party)
+	LeaveParty()
+	CreateParty(name string) *Party
 }
 
 type Bio struct {
@@ -68,6 +73,7 @@ type Bio struct {
 	clientCallPublisher ClientCallPublisher
 	skillUser           Bioer
 	beKilleder          Bioer
+	partyer             Bioer
 	//
 	// aoi
 	viewAOIState *ViewAOIState
@@ -103,6 +109,8 @@ type Bio struct {
 	talkingNpcInfo *TalkingNpcInfo
 	//
 	healSelfByRestTime float32
+	// party
+	party *Party
 }
 
 type BioClient struct {
@@ -304,6 +312,7 @@ func NewBio(w *World) *Bio {
 	bio.clientCallPublisher = bio.ClientCallPublisher()
 	bio.skillUser = bio.Bioer()
 	bio.beKilleder = bio.Bioer()
+	bio.partyer = bio.Bioer()
 	bio.fireBallSkill = NewFireBallSkill(bio.skillUser)
 	bio.cleaveSkill = NewCleaveSkill(bio.skillUser)
 	return bio
@@ -573,6 +582,14 @@ func (b *Bio) AfterUpdate(delta float32) {
 	b.cleaveSkillUpdate(delta)
 }
 
+func (b *Bio) Party() *Party {
+	return b.party
+}
+
+func (b *Bio) SetParty(p *Party) {
+	b.party = p
+}
+
 func (b *Bio) SetName(name string) {
 	b.name = name
 }
@@ -763,6 +780,42 @@ func (b *Bio) BioClientAttributes() *BioClientAttributes {
 		MaxMp: b.maxMp,
 		Mp:    b.mp,
 	}
+}
+
+func (b *Bio) JoinParty(p *Party) {
+	if b.party != nil {
+		return
+	}
+	b.party = p
+	b.party.Add(b.partyer)
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handleParty",
+		Params: []interface{}{map[string]interface{}{
+			"name":  b.name,
+			"level": b.level,
+		}},
+	}
+	b.clientCallPublisher.PublishClientCall(clientCall)
+}
+
+func (b *Bio) CreateParty(name string) *Party {
+	if b.party != nil {
+		return nil
+	}
+	b.party = b.world.NewParty()
+	b.party.name = name
+	b.party.Add(b.partyer)
+	return b.party
+}
+
+func (b *Bio) LeaveParty() {
+	if b.party == nil {
+		return
+	}
+	b.party.Remove(b.partyer)
+	delete(b.world.partys, b.party.uuid)
+	b.party = nil
 }
 
 type ChatMessageClient struct {

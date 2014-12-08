@@ -22,9 +22,8 @@ type Scene struct {
 	cpSpace *chipmunk.Space
 	//
 	defaultGroundTextureName string
-	//
+	// autos
 	autoClearItemDuration time.Duration
-	//
 	autoSaveCharsDuration time.Duration
 }
 

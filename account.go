@@ -220,6 +220,9 @@ func (a *Account) Logout() {
 			c.lastSceneName = c.scene.name
 			c.scene.Remove(c)
 		}
+		if c.party != nil {
+			c.LeaveParty()
+		}
 		c.account.world.logger.Println("Char:", c.name, "logouted.")
 	}
 	a.world.RemoveAccount(a)

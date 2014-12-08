@@ -68,6 +68,8 @@ type CharClientCall interface {
 	ClearNormalHotKey(index int)
 	ClearSkillHotKey(index int)
 	SetNormalHotKey(index int, itemBaseId int, slotIndex int)
+	//
+	JoinPartyByCharName(name string)
 }
 
 type Charer interface {
@@ -392,6 +394,7 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.Bio.skillUser = c
 	c.Bio.clientCallPublisher = c
 	c.Bio.beKilleder = c
+	c.Bio.partyer = c
 	c.viewAOIState.body.SetPosition(c.body.Position())
 	c.CalcAttributes()
 	c.hotKeys = cDump.HotKeys
@@ -847,6 +850,16 @@ func (c *Char) Logout() {
 	c.account.Logout()
 }
 
+func (c *Char) JoinPartyByCharName(name string) {
+	for _, cc := range c.world.OnlineChars() {
+		party := cc.Party()
+		if cc.Name() == name && party != nil {
+			c.JoinParty(party)
+			return
+		}
+	}
+}
+
 func (c *Char) OnSceneObjectEnterViewAOIFunc() func(SceneObjecter) {
 	return func(enterSb SceneObjecter) {
 		if enterSb.Scene() != c.scene {
@@ -969,6 +982,13 @@ func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall
 	if cc.Method == "handleMoveStateChange" &&
 		cc.Params[0] == c.id {
 		return
+	}
+	if cc.Method == "handleParty" {
+		bio, isBio := publisher.(Bioer)
+		if isBio && c.party == bio.Party() {
+			c.sock.SendClientCall(cc)
+			return
+		}
 	}
 	if cc.Method == "handleChatMessage" &&
 		cc.Params[0].(*ChatMessageClient).ChatType != "Local" {
