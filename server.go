@@ -330,7 +330,7 @@ func (s *Server) RunWeb() {
 	m.Get("/account", handleAccountInfo)
 	m.Get("/account/isLogined", haldeAccountIsLogined)
 	// sync client
-	m.Get("/clientVersion", haldeClientVersion)
+	m.Get("/clientVersion", handleClientVersion)
 	// server run
 	httpPort := s.configs.ServerConfigs.HttpPort
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(httpPort), m))
