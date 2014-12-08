@@ -357,3 +357,16 @@ func hanldeAccountLogout(session sessions.Session, r render.Render) {
 	}
 	r.JSON(200, map[string]string{"error": "not logined!"})
 }
+
+func handleClientVersion(r render.Render, s *Server) {
+	clientCall := &ClientCall{
+		Receiver: "world",
+		Method:   "handleSyncClient",
+		Params: []interface{}{
+			map[string]string{
+				"version": s.configs.ServerConfigs.ClientVersion,
+			},
+		},
+	}
+	r.JSON(200, clientCall)
+}

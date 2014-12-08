@@ -95,6 +95,7 @@ type ServerConfigs struct {
 	WebsocketPort int    `yaml:"websocketPort"`
 	EnableOauth2  bool   `yaml:"enableOauth2"`
 	SessionKey    string `yaml:"sessionKey"`
+	ClientVersion string `yaml:"clientVersion"`
 }
 
 type DaoConfigs struct {
@@ -135,6 +136,7 @@ func NewDaoConfigs(dirPrefix string) *DaoConfigs {
 			HttpPort:      3000,
 			WebsocketPort: 3001,
 			SessionKey:    "DaoSecret",
+			ClientVersion: "0.0.1",
 		},
 		ItemConfigs: &ItemConfigs{
 			EtcItemConfigs: &EtcItemConfigs{
