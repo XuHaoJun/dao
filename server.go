@@ -25,13 +25,17 @@ type wsConn struct {
 	server          *Server
 	account         *Account
 	readQuit        chan struct{}
-	send            chan []byte
 	sendClientCalls chan []*ClientCall
 }
 
 func (conn *wsConn) write(mt int, msg []byte) error {
 	conn.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return conn.ws.WriteMessage(mt, msg)
+}
+
+func (conn *wsConn) writeJSON(mt int, v interface{}) error {
+	conn.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return conn.ws.WriteJSON(v)
 }
 
 func (conn *wsConn) writeRun() {
@@ -46,24 +50,13 @@ func (conn *wsConn) writeRun() {
 			if err := conn.write(websocket.PingMessage, []byte{}); err != nil {
 				return
 			}
-		case msg, ok := <-conn.send:
-			if !ok {
-				conn.write(websocket.CloseMessage, []byte{})
-				return
-			}
-			if err := conn.write(websocket.TextMessage, msg); err != nil {
-				return
-			}
 		case clientCalls, ok := <-conn.sendClientCalls:
 			if !ok {
 				conn.write(websocket.CloseMessage, []byte{})
 				return
 			}
-			msg, err := json.Marshal(clientCalls)
+			err := conn.writeJSON(websocket.TextMessage, clientCalls)
 			if err != nil {
-				continue
-			}
-			if err := conn.write(websocket.TextMessage, msg); err != nil {
 				return
 			}
 		}
@@ -74,15 +67,6 @@ func (conn *wsConn) Close() {
 	conn.ws.Close()
 }
 
-func (conn *wsConn) SendJSON(msg interface{}) (err error) {
-	jsonMsg, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	conn.send <- jsonMsg
-	return
-}
-
 func (conn *wsConn) SendClientCall(msg ...*ClientCall) {
 	conn.sendClientCalls <- msg
 	return
@@ -90,12 +74,6 @@ func (conn *wsConn) SendClientCall(msg ...*ClientCall) {
 
 func (conn *wsConn) SendClientCalls(msg []*ClientCall) {
 	conn.sendClientCalls <- msg
-	return
-}
-
-func (conn *wsConn) Send(msg []byte) (err error) {
-	defer handleErrSendCloseChanel(&err)
-	conn.send <- msg
 	return
 }
 
@@ -111,14 +89,15 @@ func (conn *wsConn) readRun() {
 	}
 	conn.ws.SetPongHandler(pongFunc)
 	for {
-		_, msg, err := conn.ws.ReadMessage()
-		if err != nil {
-			break
-		}
 		clientCall := &ClientCall{}
-		err = json.Unmarshal(msg, clientCall)
+		err := conn.ws.ReadJSON(clientCall)
 		if err != nil {
-			continue
+			switch err.(type) {
+			case *json.InvalidUnmarshalError:
+				continue
+			default:
+				return
+			}
 		}
 		conn.server.world.RequestParseClientCall(clientCall, conn)
 	}
@@ -270,8 +249,7 @@ func NewWsConn(ws *websocket.Conn, hub *WsHub) *wsConn {
 		hub:             hub,
 		server:          hub.server,
 		account:         nil,
-		send:            make(chan []byte, 8),
-		sendClientCalls: make(chan []*ClientCall, 1024),
+		sendClientCalls: make(chan []*ClientCall, 256),
 	}
 }
 
