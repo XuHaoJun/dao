@@ -15,6 +15,7 @@ type Scene struct {
 	//
 	world *World
 	//
+	chars        map[int]Charer
 	sceneObjects map[int]SceneObjecter
 	//
 	staticBodys map[*chipmunk.Body]struct{}
@@ -25,6 +26,8 @@ type Scene struct {
 	// autos
 	autoClearItemDuration time.Duration
 	autoSaveCharsDuration time.Duration
+	//
+	enableNoUpdateOnZeroChar bool
 }
 
 type SceneInfo struct {
@@ -40,14 +43,16 @@ func NewScene(w *World, name string) *Scene {
 		world:        w,
 		name:         name,
 		idCounter:    1,
+		chars:        make(map[int]Charer),
 		sceneObjects: make(map[int]SceneObjecter),
 		staticBodys:  make(map[*chipmunk.Body]struct{}),
 		cpSpace:      cpSpace,
 		//
 		defaultGroundTextureName: "grass",
 		//
-		autoClearItemDuration: time.Minute * 5,
-		autoSaveCharsDuration: time.Minute * 30,
+		autoClearItemDuration:    time.Minute * 5,
+		autoSaveCharsDuration:    time.Minute * 30,
+		enableNoUpdateOnZeroChar: false,
 	}
 }
 
@@ -109,6 +114,9 @@ func NewWallScene(world *World, name string, w vect.Float, h vect.Float) *Scene 
 }
 
 func (s *Scene) Update(delta float32) {
+	if s.enableNoUpdateOnZeroChar && len(s.chars) <= 0 {
+		return
+	}
 	for _, sb := range s.sceneObjects {
 		sb.BeforeUpdate(delta)
 	}
@@ -139,9 +147,8 @@ type ClientCallPublisher interface {
 }
 
 func (s *Scene) DispatchClientCall(sender ClientCallPublisher, c *ClientCall) {
-	for _, sb := range s.sceneObjects {
-		char, ok := sb.(Charer)
-		if ok && char.Scene() != nil {
+	for _, char := range s.chars {
+		if char.Scene() != nil {
 			char.OnReceiveClientCall(sender, c)
 		}
 	}
@@ -182,10 +189,10 @@ func (s *Scene) FindNpcerById(nid int) Npcer {
 	return nil
 }
 
-func (s *Scene) AllChar() []*Char {
-	chars := make([]*Char, 0)
-	for _, sb := range s.sceneObjects {
-		char, ok := sb.(*Char)
+func (s *Scene) AllChar() []Charer {
+	chars := make([]Charer, len(s.chars))
+	for _, sb := range s.chars {
+		char, ok := sb.(Charer)
 		if ok {
 			chars = append(chars, char)
 		}
@@ -254,6 +261,10 @@ func (s *Scene) Add(sb SceneObjecter) {
 	sb.SetId(s.idCounter)
 	sb.SetInSceneDuration(time.Duration(0))
 	s.sceneObjects[s.idCounter] = sb
+	char, isChar := sb.(Charer)
+	if isChar {
+		s.chars[s.idCounter] = char
+	}
 	s.idCounter = s.idCounter + 1
 	s.cpSpace.AddBody(sb.Body())
 	sb.OnBeAddedToScene(s)
@@ -264,6 +275,10 @@ func (s *Scene) Remove(sb SceneObjecter) {
 		return
 	}
 	delete(s.sceneObjects, sb.Id())
+	char, isChar := sb.(Charer)
+	if isChar {
+		delete(s.chars, char.Id())
+	}
 	sb.SetLastId(sb.Id())
 	sb.SetLastSceneName(s.name)
 	sb.SetLastPosition(sb.Body().Position())

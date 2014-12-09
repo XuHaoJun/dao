@@ -118,6 +118,7 @@ func NewWorld(db *DaoDB, configs *DaoConfigs) (*World, error) {
 	daoField01 := NewWallScene(w, "daoField01", 6000, 6000)
 	daoField01.defaultGroundTextureName = "dirt"
 	w.scenes["daoField01"] = daoField01
+	daoField01.enableNoUpdateOnZeroChar = true
 	// interpreter
 	w.interpreter = NewWorldInterpreter(w)
 	w.Emitter = emission.NewEmitterOtto(w.interpreter.vm)
@@ -207,8 +208,8 @@ func (w *World) Run() {
 	for {
 		select {
 		case <-physicC:
+			wg.Add(len(w.scenes))
 			for _, scene := range w.scenes {
-				wg.Add(1)
 				go func(s *Scene, dt float32) {
 					s.Update(dt)
 					wg.Done()
@@ -478,14 +479,15 @@ func (w *World) LoginAccountBySessionToken(username string, token string, sock *
 	for i, char := range acc.chars {
 		charClients[i] = char.CharClient()
 	}
-	param := map[string]interface{}{
-		"username":    username,
-		"charConfigs": charClients,
-	}
 	clientCall := &ClientCall{
 		Receiver: "world",
 		Method:   "handleSuccessLoginAcccount",
-		Params:   []interface{}{param},
+		Params: []interface{}{
+			map[string]interface{}{
+				"username":    username,
+				"charConfigs": charClients,
+			},
+		},
 	}
 	sock.SendClientCall(clientCall)
 	w.logger.Println("Account:", acc.username, "Logined.")
