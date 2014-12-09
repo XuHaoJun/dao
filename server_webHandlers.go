@@ -22,6 +22,14 @@ type AccountRegisterFrom struct {
 	Email    string `form:"email" binding:"required"`
 }
 
+func (accRegiForm *AccountRegisterFrom) IsVaild() bool {
+	if len(accRegiForm.Username) < 4 ||
+		len(accRegiForm.Password) < 4 {
+		return false
+	}
+	return true
+}
+
 func (s *Server) DBHandler() martini.Handler {
 	return func(c martini.Context) {
 		dbSessionClone := s.db.CloneSession()
@@ -35,6 +43,16 @@ func handleAccountRegister(form AccountRegisterFrom, db *DaoDB, r render.Render,
 	username := form.Username
 	password := form.Password
 	email := form.Email
+	if !form.IsVaild() {
+		clientErr := []interface{}{"duplicated account!"}
+		clientCall := &ClientCall{
+			Receiver: "world",
+			Method:   "handleErrorLoginAccount",
+			Params:   clientErr,
+		}
+		r.JSON(200, clientCall)
+		return
+	}
 	queryAcc := bson.M{"username": username}
 	err := db.accounts.Find(queryAcc).Select(bson.M{"_id": 1}).One(&struct{}{})
 	var clientCall *ClientCall
