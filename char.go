@@ -69,6 +69,8 @@ type CharClientCall interface {
 	SetNormalHotKey(index int, itemBaseId int, slotIndex int)
 	// party
 	JoinPartyByCharName(name string)
+	CreateParty(name string) *Party
+	LeaveParty() *Party
 }
 
 type Charer interface {
@@ -295,9 +297,9 @@ func (c *Char) TeleportBySceneName(name string, x float32, y float32) (targetSce
 	}
 	c.lastSceneName = curScene.name
 	c.lastId = c.id
-	curScene.Remove(c.SceneObjecter())
+	curScene.Remove(c)
 	c.SetPosition(x, y)
-	targetScene.Add(c.SceneObjecter())
+	targetScene.Add(c)
 	// client update
 	clientCalls := make([]*ClientCall, 6)
 	clientCalls[0] = &ClientCall{
@@ -389,11 +391,7 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.body.IgnoreGravity = true
 	c.body.SetVelocity(0, 0)
 	c.body.SetMoment(chipmunk.Inf)
-	c.body.UserData = c
-	c.Bio.skillUser = c
-	c.Bio.clientCallPublisher = c
-	c.Bio.beKilleder = c
-	c.Bio.partyer = c
+	c.Bio.InjectBioer(c)
 	c.viewAOIState.body.SetPosition(c.body.Position())
 	c.CalcAttributes()
 	c.hotKeys = cDump.HotKeys
@@ -451,14 +449,9 @@ func NewChar(name string, acc *Account) *Char {
 	c.OnKill = c.OnKillFunc()
 	c.viewAOIState.OnSceneObjectEnter = c.OnSceneObjectEnterViewAOIFunc()
 	c.viewAOIState.OnSceneObjectLeave = c.OnSceneObjectLeaveViewAOIFunc()
-	c.body.UserData = c
-	c.clientCallPublisher = c
-	c.Bio.skillUser = c
-	c.Bio.beKilleder = c
+	c.Bio.InjectBioer(c)
 	c.fireBallSkill.ballLayer = MobLayer
-	c.fireBallSkill.owner = c
 	c.cleaveSkill.layer = MobLayer
-	c.cleaveSkill.owner = c
 	return c
 }
 
@@ -808,7 +801,7 @@ func (c *Char) Login() {
 	} else {
 		scene = lastScene
 	}
-	scene.Add(c.SceneObjecter())
+	scene.Add(c)
 	logger := c.account.world.logger
 	logger.Println("Char:", c.name, "logined.")
 }
@@ -838,14 +831,64 @@ func (c *Char) Logout() {
 	c.account.Logout()
 }
 
-func (c *Char) JoinPartyByCharName(name string) {
-	for _, anotherChar := range c.world.OnlineChars() {
-		if name == anotherChar.Name() {
+func (c *Char) LeaveParty() *Party {
+	party := c.Bio.LeaveParty()
+	if party == nil {
+		return nil
+	}
+	// you are not in members but need to other chars
+	// known you are leaved.
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handlePartyRemove",
+		Params: []interface{}{
+			map[string]interface{}{
+				"name": c.name,
+			}},
+	}
+	for _, char := range party.CharMembers() {
+		char.SendClientCall(clientCall)
+	}
+	// send to self will clear party to null on client
+	c.sock.SendClientCall(clientCall)
+	return party
+}
+
+func (c *Char) JoinPartyByCharName(targetName string) {
+	if c.party != nil {
+		return
+	}
+	for anotherName, anotherChar := range c.world.OnlineChars() {
+		if c.name == anotherName {
 			continue
 		}
 		party := anotherChar.Party()
-		if anotherChar.Name() == name && party != nil {
-			c.JoinParty(party)
+		if anotherName == targetName && party != nil {
+			err := c.JoinParty(party)
+			if err != nil {
+				return
+			}
+			clientCall1 := &ClientCall{
+				Receiver: "char",
+				Method:   "handlePartyCreate",
+				Params: []interface{}{
+					c.party.PartyClient(),
+				},
+			}
+			clientCall2 := &ClientCall{
+				Receiver: "char",
+				Method:   "handlePartyAdd",
+				Params: []interface{}{
+					&MemberInfo{c.name, c.level},
+				},
+			}
+			for _, char := range party.CharMembers() {
+				if char == c.Charer() {
+					char.SendClientCall(clientCall1)
+					continue
+				}
+				char.SendClientCall(clientCall2)
+			}
 			return
 		}
 	}
@@ -975,12 +1018,6 @@ func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall
 		if cc.Params[0] == c.id {
 			return
 		}
-	case "handlePartyAdd", "handlePartyRemove":
-		bio, isBio := publisher.(Bioer)
-		if isBio && c.party == bio.Party() {
-			c.sock.SendClientCall(cc)
-			return
-		}
 	case "handleChatMessage":
 		if cc.Params[0].(*ChatMessageClient).ChatType != "Local" {
 			c.sock.SendClientCall(cc)
@@ -994,13 +1031,29 @@ func (c *Char) OnReceiveClientCall(publisher ClientCallPublisher, cc *ClientCall
 	switch sb.(type) {
 	case Bioer:
 		_, found := c.viewAOIState.inAreaSceneObjecters[sb]
-		if found {
-			c.sock.SendClientCall(cc)
+		if !found {
 			return
 		}
+		c.sock.SendClientCall(cc)
 	default:
 		return
 	}
+}
+
+func (c *Char) CreateParty(name string) *Party {
+	party := c.Bio.CreateParty(name)
+	if party == nil {
+		return nil
+	}
+	clientCall := &ClientCall{
+		Receiver: "char",
+		Method:   "handlePartyCreate",
+		Params: []interface{}{
+			c.party.PartyClient(),
+		},
+	}
+	c.sock.SendClientCall(clientCall)
+	return c.party
 }
 
 func (c *Char) EquipBySlot(slot int) {
@@ -1510,7 +1563,7 @@ func (c *Char) Reborn() {
 	}
 	c.hp = c.maxHp
 	c.SetPosition(c.saveSceneInfo.X, c.saveSceneInfo.Y)
-	scene.Add(c.SceneObjecter())
+	scene.Add(c)
 	// client
 	clientCalls := make([]*ClientCall, 5)
 	sceneParam := scene.SceneClient()

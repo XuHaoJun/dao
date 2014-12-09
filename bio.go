@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"errors"
 	"fmt"
 	"github.com/xuhaojun/chipmunk"
 	"github.com/xuhaojun/chipmunk/vect"
@@ -57,7 +58,7 @@ type Bioer interface {
 	// party
 	Party() *Party
 	SetParty(p *Party)
-	LeaveParty()
+	LeaveParty() *Party
 	CreateParty(name string) *Party
 }
 
@@ -74,6 +75,7 @@ type Bio struct {
 	skillUser           Bioer
 	beKilleder          Bioer
 	partyer             Bioer
+	sceneObjecter       Bioer
 	//
 	// aoi
 	viewAOIState *ViewAOIState
@@ -136,6 +138,8 @@ type BioClient struct {
 	MoveBaseVelocity *CpVectClient `json:"moveBaseVelocity"`
 	//
 	CpBody *CpBodyClient `json:"cpBody"`
+	//
+	Party *PartyClient `json:"party,omitempty"`
 }
 
 type BioClientBasic struct {
@@ -152,6 +156,8 @@ type BioClientBasic struct {
 	MoveBaseVelocity *CpVectClient `json:"moveBaseVelocity"`
 	//
 	CpBody *CpBodyClient `json:"cpBody"`
+	//
+	Party *PartyClientBasic `json:"party,omitempty"`
 }
 
 type BioClientAttributes struct {
@@ -313,6 +319,7 @@ func NewBio(w *World) *Bio {
 	bio.skillUser = bio.Bioer()
 	bio.beKilleder = bio.Bioer()
 	bio.partyer = bio.Bioer()
+	bio.sceneObjecter = bio.Bioer()
 	bio.fireBallSkill = NewFireBallSkill(bio.skillUser)
 	bio.cleaveSkill = NewCleaveSkill(bio.skillUser)
 	return bio
@@ -717,6 +724,11 @@ func (b *Bio) IsDied() bool {
 }
 
 func (b *Bio) BioClient() *BioClient {
+	var partyClient *PartyClient = nil
+	party := b.Party()
+	if party != nil {
+		partyClient = party.PartyClient()
+	}
 	return &BioClient{
 		Id:         b.id,
 		Name:       b.name,
@@ -743,10 +755,16 @@ func (b *Bio) BioClient() *BioClient {
 		},
 		//
 		CpBody: ToCpBodyClient(b.body),
+		Party:  partyClient,
 	}
 }
 
 func (b *Bio) BioClientBasic() *BioClientBasic {
+	var partyClient *PartyClientBasic = nil
+	party := b.Party()
+	if party != nil {
+		partyClient = party.PartyClientBasic()
+	}
 	return &BioClientBasic{
 		Id:         b.id,
 		Name:       b.name,
@@ -764,6 +782,7 @@ func (b *Bio) BioClientBasic() *BioClientBasic {
 		},
 		//
 		CpBody: ToCpBodyClient(b.body),
+		Party:  partyClient,
 	}
 }
 
@@ -784,21 +803,27 @@ func (b *Bio) BioClientAttributes() *BioClientAttributes {
 	}
 }
 
-func (b *Bio) JoinParty(p *Party) {
+func (b *Bio) JoinParty(p *Party) error {
 	if b.party != nil {
-		return
+		return errors.New("wrong")
 	}
 	b.party = p
-	b.party.Add(b.partyer)
-	clientCall := &ClientCall{
-		Receiver: "char",
-		Method:   "handlePartyAdd",
-		Params: []interface{}{map[string]interface{}{
-			"name":  b.name,
-			"level": b.level,
-		}},
+	err := b.party.Add(b.partyer)
+	if err != nil {
+		return err
 	}
-	b.clientCallPublisher.PublishClientCall(clientCall)
+	return nil
+}
+
+func (b *Bio) InjectBioer(b2 Bioer) {
+	b.clientCallPublisher = b2.(ClientCallPublisher)
+	b.skillUser = b2
+	b.beKilleder = b2
+	b.partyer = b2
+	b.sceneObjecter = b2
+	b.cleaveSkill.owner = b2
+	b.fireBallSkill.owner = b2
+	b.body.UserData = b2
 }
 
 func (b *Bio) CreateParty(name string) *Party {
@@ -806,27 +831,32 @@ func (b *Bio) CreateParty(name string) *Party {
 		return nil
 	}
 	b.party = b.world.NewParty()
+	b.party.leader = b.partyer
 	b.party.name = name
 	b.party.Add(b.partyer)
+	clientCall := &ClientCall{
+		Receiver: "bio",
+		Method:   "handlePartyCreateBasic",
+		Params: []interface{}{
+			b.id,
+			b.party.PartyClientBasic(),
+		},
+	}
+	b.clientCallPublisher.PublishClientCall(clientCall)
 	return b.party
 }
 
-func (b *Bio) LeaveParty() {
+func (b *Bio) LeaveParty() *Party {
 	if b.party == nil {
-		return
+		return nil
 	}
+	var party *Party = b.party
 	b.party.Remove(b.partyer)
-	delete(b.world.partys, b.party.uuid)
-	b.party = nil
-	clientCall := &ClientCall{
-		Receiver: "char",
-		Method:   "handlePartyRemove",
-		Params: []interface{}{map[string]interface{}{
-			"name":  b.name,
-			"level": b.level,
-		}},
+	if len(party.members) == 0 {
+		delete(b.world.partys, party.uuid)
+		return party
 	}
-	b.clientCallPublisher.PublishClientCall(clientCall)
+	return party
 }
 
 type ChatMessageClient struct {
@@ -867,9 +897,9 @@ func (b *Bio) TeleportBySceneName(name string, x float32, y float32) (targetScen
 	}
 	b.lastSceneName = curScene.name
 	b.lastId = b.id
-	curScene.Remove(b.SceneObjecter())
+	curScene.Remove(b.sceneObjecter)
 	b.SetPosition(x, y)
-	targetScene.Add(b.SceneObjecter())
+	targetScene.Add(b.sceneObjecter)
 	return
 }
 
@@ -923,7 +953,7 @@ func (b *Bio) TakeDamage(battleDamage BattleDamage, attacker Bioer) {
 	b.clientCallPublisher.PublishClientCall(clientCall)
 	if b.hp == 0 {
 		scene := b.scene
-		scene.Remove(b)
+		scene.Remove(b.sceneObjecter)
 		if b.OnBeKilled != nil {
 			b.OnBeKilled(attacker)
 		}
