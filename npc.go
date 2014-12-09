@@ -99,12 +99,9 @@ func NewNpc(w *World) *Npc {
 		baseId: -1,
 	}
 	npc.bodyViewId = 5000
-	npc.body.UserData = npc
-	npc.Bio.clientCallPublisher = npc
-	npc.Bio.skillUser = npc
-	npc.Bio.partyer = npc
 	npc.CalcAttributes()
 	npc.hp = npc.maxHp
+	npc.Bio.InjectBioer(npc)
 	return npc
 }
 

@@ -69,14 +69,10 @@ func NewMob(w *World) *Mob {
 		shape.Layer = shape.Layer | MobLayer
 	}
 	mob.bodyViewId = 10001
-	mob.clientCallPublisher = mob
-	mob.Bio.skillUser = mob
-	mob.Bio.partyer = mob
-	mob.body.UserData = mob
 	mob.viewAOIState = NewBioViewAOIState(200, mob.Bio)
 	mob.OnBeKilled = mob.OnBeKilledFunc()
-	mob.Bio.beKilleder = mob.Bioer()
 	mob.fireBallSkill.ballLayer = CharLayer
+	mob.Bio.InjectBioer(mob)
 	return mob
 }
 
