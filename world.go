@@ -41,6 +41,8 @@ type World struct {
 	//
 	BioReborn chan Bioer
 	//
+	sceneUpdateJob chan *Scene
+	//
 	// AccountLoginChar  chan *AccountLoginChar
 	// AccountCreateChar chan *AccountCreateChar
 	//
@@ -105,8 +107,9 @@ func NewWorld(db *DaoDB, configs *DaoConfigs) (*World, error) {
 		//
 		Quit: make(chan struct{}),
 		//
-		util:  &Util{},
-		cache: NewCache(),
+		util:           &Util{},
+		cache:          NewCache(),
+		sceneUpdateJob: make(chan *Scene, 8),
 	}
 	if configs != nil {
 		w.configs = configs
@@ -202,18 +205,18 @@ func (w *World) Run() {
 		panic(err)
 	}
 	defer w.db.session.Close()
-	var wg sync.WaitGroup
+	wg := &sync.WaitGroup{}
 	go w.interpreter.Run()
 	physicC := time.Tick(w.timeStep)
+	for i := 0; i < 8; i++ {
+		go w.sceneUpdateWorker(wg)
+	}
 	for {
 		select {
 		case <-physicC:
 			wg.Add(len(w.scenes))
 			for _, scene := range w.scenes {
-				go func(s *Scene, dt float32) {
-					s.Update(dt)
-					wg.Done()
-				}(scene, w.delta)
+				w.sceneUpdateJob <- scene
 			}
 			wg.Wait()
 		case params := <-w.ParseClientCall:
@@ -257,6 +260,13 @@ func (w *World) Run() {
 			w.Quit <- struct{}{}
 			return
 		}
+	}
+}
+
+func (w *World) sceneUpdateWorker(wg *sync.WaitGroup) {
+	for scene := range w.sceneUpdateJob {
+		scene.Update(w.delta)
+		wg.Done()
 	}
 }
 
