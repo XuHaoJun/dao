@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -109,7 +110,7 @@ func NewWorld(db *DaoDB, configs *DaoConfigs) (*World, error) {
 		//
 		util:           &Util{},
 		cache:          NewCache(),
-		sceneUpdateJob: make(chan *Scene, 8),
+		sceneUpdateJob: make(chan *Scene, runtime.NumCPU()),
 	}
 	if configs != nil {
 		w.configs = configs
@@ -205,10 +206,10 @@ func (w *World) Run() {
 		panic(err)
 	}
 	defer w.db.session.Close()
-	wg := &sync.WaitGroup{}
 	go w.interpreter.Run()
 	physicC := time.Tick(w.timeStep)
-	for i := 0; i < 8; i++ {
+	wg := &sync.WaitGroup{}
+	for i := 0; i < runtime.NumCPU(); i++ {
 		go w.sceneUpdateWorker(wg)
 	}
 	for {
