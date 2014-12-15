@@ -215,6 +215,7 @@ func (i *Item) BaseId() int {
 
 type EquipmentClient struct {
 	ItemClient  *ItemClient               `json:"itemConfig"`
+	Level       int                       `json:"level"`
 	BonusInfo   *EquipmentBonusInfoClient `json:"bonusInfo"`
 	EquipViewId int                       `json:"equipViewId"`
 	EquipLimit  *EquipLimitClient         `json:"equipLimit"`
@@ -223,6 +224,7 @@ type EquipmentClient struct {
 func (e *Equipment) EquipmentClient() *EquipmentClient {
 	return &EquipmentClient{
 		ItemClient:  e.ItemClient(),
+		Level:       e.level,
 		BonusInfo:   e.bonusInfo.EquipmentBonusInfoClient(),
 		EquipViewId: e.equipViewId,
 		EquipLimit:  e.equipLimit.EquipLimitClient(),
@@ -231,6 +233,7 @@ func (e *Equipment) EquipmentClient() *EquipmentClient {
 
 type Equipment struct {
 	*Item
+	level       int
 	bonusInfo   *EquipmentBonusInfo
 	etype       int
 	equipViewId int
@@ -251,6 +254,7 @@ func (e *Equipment) Client() interface{} {
 
 func NewEquipment() *Equipment {
 	eq := &Equipment{
+		level:      1,
 		bonusInfo:  &EquipmentBonusInfo{},
 		equipLimit: &EquipLimit{},
 	}
@@ -280,6 +284,7 @@ func (e *Equipment) DumpDB() *EquipmentDumpDB {
 	return &EquipmentDumpDB{
 		Item:        e.Item.DumpDB(),
 		BonusInfo:   e.bonusInfo.DumpDB(),
+		Level:       e.level,
 		Etype:       e.etype,
 		EquipViewId: e.equipViewId,
 		EquipLimit:  e.equipLimit.DumpDB(),
@@ -290,6 +295,7 @@ func (e *Equipment) DB() *EquipmentDB {
 	return &EquipmentDB{
 		Item:        e.Item.DumpDB(),
 		BonusInfo:   e.bonusInfo.DB(),
+		Level:       e.level,
 		Etype:       e.etype,
 		EquipViewId: e.equipViewId,
 		EquipLimit:  e.equipLimit.DumpDB(),
@@ -299,6 +305,7 @@ func (e *Equipment) DB() *EquipmentDB {
 func (eDB *EquipmentDB) DumpDB() *EquipmentDumpDB {
 	return &EquipmentDumpDB{
 		Item:        eDB.Item,
+		Level:       eDB.Level,
 		BonusInfo:   eDB.BonusInfo.DumpDB(),
 		Etype:       eDB.Etype,
 		EquipViewId: eDB.EquipViewId,
@@ -343,6 +350,7 @@ func (e *EquipmentDumpDB) Load() *Equipment {
 	}
 	return &Equipment{
 		Item:        e.Item.Load(),
+		level:       e.Level,
 		bonusInfo:   e.BonusInfo.Load(),
 		etype:       e.Etype,
 		equipViewId: e.EquipViewId,
@@ -353,6 +361,7 @@ func (e *EquipmentDumpDB) Load() *Equipment {
 type EquipmentDumpDB struct {
 	Item *ItemDumpDB `bson:"item"`
 	//
+	Level       int `bson:"level"`
 	Etype       int `bson:"etype"`
 	EquipViewId int `bson:"equipViewId"`
 	//
@@ -361,7 +370,8 @@ type EquipmentDumpDB struct {
 }
 
 type EquipmentDB struct {
-	Item *ItemDumpDB `bson:"item"`
+	Item  *ItemDumpDB `bson:"item"`
+	Level int         `bson:"level"`
 	//
 	Etype       int `bson:"etype"`
 	EquipViewId int `bson:"equipViewId"`
