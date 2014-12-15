@@ -9,12 +9,12 @@ func NewMobByBaseId(w *World, id int) Mober {
 	var m Mober
 	switch id {
 	case 1:
-		m = NewMobByBaseId1(w, 1)
+		m = newMobByBaseId1(w, 1)
 	}
 	return m
 }
 
-func NewMobByBaseId1(w *World, id int) Mober {
+func newMobByBaseId1(w *World, id int) Mober {
 	mob := NewMob(w)
 	mob.dropItemBaseIds = []int{1, 2, 5001, 5002, 5003, 10001}
 	mob.viewAOIState = NewBioViewAOIState(350, mob.Bio)

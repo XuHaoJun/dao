@@ -121,15 +121,15 @@ func (s *Scene) Update(delta float32) {
 		sb.BeforeUpdate(delta)
 	}
 	s.cpSpace.Step(vect.Float(delta))
+	deltaTime := time.Duration(float32(time.Second) * delta)
 	for _, sb := range s.sceneObjects {
 		sb.AfterUpdate(delta)
-		deltaTime := time.Duration(float32(time.Second) * delta)
 		sb.IncInSceneDuration(deltaTime)
 		item, isItem := sb.(Itemer)
 		if isItem &&
 			item.InSceneDuration() >= s.autoClearItemDuration {
-			s.Remove(item.SceneObjecter())
-			break
+			s.Remove(sb)
+			continue
 		}
 		char, isChar := sb.(Charer)
 		if isChar &&
@@ -137,7 +137,7 @@ func (s *Scene) Update(delta float32) {
 			char.SetInSceneDuration(time.Duration(0))
 			dump := char.DumpDB()
 			go char.SaveByDumpDB(dump)
-			break
+			continue
 		}
 	}
 }

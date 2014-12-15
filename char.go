@@ -71,6 +71,7 @@ type CharClientCall interface {
 	JoinPartyByCharName(name string)
 	CreateParty(name string) *Party
 	LeaveParty() *Party
+	ClearQuest(qid int)
 }
 
 type Charer interface {
@@ -81,7 +82,7 @@ type Charer interface {
 	OnReceiveClientCall(sender ClientCallPublisher, c *ClientCall)
 	Save()
 	SaveByDumpDB(dump *CharDumpDB)
-	SendClientCall(msg *ClientCall)
+	SendClientCall(msg ...*ClientCall)
 	SendClientCalls(msg []*ClientCall)
 	CharClientCall() CharClientCall
 	CharClient() *CharClient
@@ -94,6 +95,8 @@ type Charer interface {
 	SendChatMessage(ch string, talkerName string, content string)
 	ClientChatMessage(ch string, talkerName string, content string) *ClientCall
 	SendNpcTalkBox(nt *NpcTalk)
+	TakeQuest(q *Quest)
+	ClearQuest(qid int)
 }
 
 type Char struct {
@@ -122,20 +125,23 @@ type Char struct {
 	//
 	learnedSkills CharLearnedSkills
 	hotKeys       *CharHotKeys
+	//
+	quests map[int]*Quest
 }
 
 type CharClient struct {
-	BioClient     *BioClient        `json:"bioConfig"`
-	SlotIndex     int               `json:"slotIndex"`
-	LastSceneName string            `json:"lastSceneName"`
-	LastX         float32           `json:"lastX"`
-	LastY         float32           `json:"lastY"`
-	Items         *ItemsClient      `json:"items"`
-	UsingEquips   UsingEquipsClient `json:"usingEquips"`
-	Dzeny         int               `json:"dzeny"`
-	LearnedSkills map[string]int    `json:"learnedSkills"`
-	HotKeys       *CharHotKeys      `json:"hotKeys"`
-	PickRadius    float32           `json:"pickRadius"`
+	BioClient     *BioClient              `json:"bioConfig"`
+	SlotIndex     int                     `json:"slotIndex"`
+	LastSceneName string                  `json:"lastSceneName"`
+	LastX         float32                 `json:"lastX"`
+	LastY         float32                 `json:"lastY"`
+	Items         *ItemsClient            `json:"items"`
+	UsingEquips   UsingEquipsClient       `json:"usingEquips"`
+	Dzeny         int                     `json:"dzeny"`
+	LearnedSkills map[string]int          `json:"learnedSkills"`
+	HotKeys       *CharHotKeys            `json:"hotKeys"`
+	PickRadius    float32                 `json:"pickRadius"`
+	Quests        map[string]*QuestClient `json:"quests,omitempty"`
 }
 
 type CharClientBasic struct {
@@ -143,25 +149,26 @@ type CharClientBasic struct {
 }
 
 type CharDumpDB struct {
-	Id            bson.ObjectId     `bson:"_id"`
-	SlotIndex     int               `bson:"slotIndex"`
-	Name          string            `bson:"name"`
-	Level         int               `bson:"level"`
-	Hp            int               `bson:"hp"`
-	Mp            int               `bson:"mp"`
-	Str           int               `bson:"str"`
-	Vit           int               `bson:"vit"`
-	Wis           int               `bson:"wis"`
-	Spi           int               `bson:"spi"`
-	Dzeny         int               `bson:"dzeny"`
-	LastScene     *SceneInfo        `bson:"lastScene"`
-	SaveScene     *SceneInfo        `bson:"saveScene"`
-	UsingEquips   UsingEquipsDumpDB `bson:"usingEquips"`
-	Items         *ItemsDumpDB      `bson:"items"`
-	BodyViewId    int               `bson:"bodyViewId"`
-	BodyShape     *CircleShape      `bson:"bodyShape"`
-	LearnedSkills map[string]int    `bson:"learnedSkills"`
-	HotKeys       *CharHotKeys      `bson:"hotKeys"`
+	Id            bson.ObjectId           `bson:"_id"`
+	SlotIndex     int                     `bson:"slotIndex"`
+	Name          string                  `bson:"name"`
+	Level         int                     `bson:"level"`
+	Hp            int                     `bson:"hp"`
+	Mp            int                     `bson:"mp"`
+	Str           int                     `bson:"str"`
+	Vit           int                     `bson:"vit"`
+	Wis           int                     `bson:"wis"`
+	Spi           int                     `bson:"spi"`
+	Dzeny         int                     `bson:"dzeny"`
+	LastScene     *SceneInfo              `bson:"lastScene"`
+	SaveScene     *SceneInfo              `bson:"saveScene"`
+	UsingEquips   UsingEquipsDumpDB       `bson:"usingEquips"`
+	Items         *ItemsDumpDB            `bson:"items"`
+	BodyViewId    int                     `bson:"bodyViewId"`
+	BodyShape     *CircleShape            `bson:"bodyShape"`
+	LearnedSkills map[string]int          `bson:"learnedSkills"`
+	HotKeys       *CharHotKeys            `bson:"hotKeys"`
+	Quests        map[string]*QuestDumpDB `bson:"quests,omitempty"`
 }
 
 type CircleShape struct {
@@ -229,6 +236,13 @@ func (c *Char) DumpDB() *CharDumpDB {
 		}
 	} else {
 		cDump.LastScene = &SceneInfo{"daoCity", 0.0, 0.0}
+	}
+	if c.quests != nil && len(c.quests) > 0 {
+		questsDump := make(map[string]*QuestDumpDB, len(c.quests))
+		for baseId, q := range c.quests {
+			questsDump[strconv.Itoa(baseId)] = q.DumpDB()
+		}
+		cDump.Quests = questsDump
 	}
 	return cDump
 }
@@ -395,6 +409,14 @@ func (cDump *CharDumpDB) Load(acc *Account) *Char {
 	c.viewAOIState.body.SetPosition(c.body.Position())
 	c.CalcAttributes()
 	c.hotKeys = cDump.HotKeys
+	if cDump.Quests != nil {
+		quests := make(map[int]*Quest, len(cDump.Quests))
+		for baseId, q := range cDump.Quests {
+			id, _ := strconv.Atoi(baseId)
+			quests[id] = q.Load()
+		}
+		c.quests = quests
+	}
 	return c
 }
 
@@ -422,6 +444,7 @@ func NewChar(name string, acc *Account) *Char {
 		learnedSkills: map[CharSkillBaseId]CharSkillLevel{},
 		hotKeys:       NewCharHotKeys(),
 		pickRadius:    111.0,
+		quests:        make(map[int]*Quest, 0),
 	}
 	for _, shape := range c.body.Shapes {
 		shape.Layer = shape.Layer | CharLayer
@@ -468,6 +491,49 @@ func (c *Char) ClearNormalHotKey(index int) {
 		},
 	}
 	c.SendClientCall(clientCall)
+}
+
+func (c *Char) ClientQuestsByBaseId(ids []int, isUpsert bool) *ClientCall {
+	qClients := make(map[string]*QuestClient, len(ids))
+	for _, id := range ids {
+		qClients[strconv.Itoa(id)] = c.quests[id].QuestClient()
+	}
+	return &ClientCall{
+		Receiver: "char",
+		Method:   "handleQuests",
+		Params:   []interface{}{qClients, isUpsert},
+	}
+}
+
+func (c *Char) ClientQuests() *ClientCall {
+	qClients := make(map[string]*QuestClient, len(c.quests))
+	for baseId, q := range c.quests {
+		qClients[strconv.Itoa(baseId)] = q.QuestClient()
+	}
+	return &ClientCall{
+		Receiver: "char",
+		Method:   "handleQuests",
+		Params:   []interface{}{qClients},
+	}
+}
+
+func (c *Char) TakeQuest(q *Quest) {
+	if q.baseId <= 0 || !q.CanTake() {
+		return
+	}
+	_, hasQuest := c.quests[q.baseId]
+	if hasQuest {
+		return
+	}
+	c.quests[q.baseId] = q
+	c.SendClientCall(c.ClientQuests())
+}
+
+// TODO
+// should check some quest can't give up.
+func (c *Char) ClearQuest(qid int) {
+	delete(c.quests, qid)
+	c.SendClientCall(c.ClientQuests())
 }
 
 func (c *Char) SetNormalHotKey(index int, itemBaseId int, slotIndex int) {
@@ -616,6 +682,10 @@ func (c *Char) CharClient() *CharClient {
 	for id, level := range c.learnedSkills {
 		learnedSkills[strconv.Itoa(int(id))] = int(level)
 	}
+	quests := make(map[string]*QuestClient, len(c.quests))
+	for id, quest := range c.quests {
+		quests[strconv.Itoa(id)] = quest.QuestClient()
+	}
 	return &CharClient{
 		BioClient:     bClient,
 		SlotIndex:     c.slotIndex,
@@ -628,6 +698,7 @@ func (c *Char) CharClient() *CharClient {
 		HotKeys:       c.hotKeys,
 		PickRadius:    c.pickRadius,
 		LearnedSkills: learnedSkills,
+		Quests:        quests,
 	}
 }
 
@@ -806,24 +877,36 @@ func (c *Char) Login() {
 	logger.Println("Char:", c.name, "logined.")
 }
 
+func (c *Char) onKillMob(m Mober) {
+	c.dzeny += m.Level() * 100
+	clientCall1 := &ClientCall{
+		Receiver: "char",
+		Method:   "handleUpdateConfig",
+		Params: []interface{}{
+			struct {
+				Dzeny int `json:"dzeny"`
+			}{c.dzeny},
+		},
+	}
+	mobBaseId := m.BaseId()
+	qids := make([]int, 0)
+	for qid, q := range c.quests {
+		inced := q.IncTargetMobCount(mobBaseId, 1)
+		if inced {
+			qids = append(qids, qid)
+		}
+	}
+	clientCall2 := c.ClientQuestsByBaseId(qids, true)
+	c.SendClientCall(clientCall1, clientCall2)
+}
+
 func (c *Char) OnKillFunc() func(target Bioer) {
 	return func(target Bioer) {
 		// for quest check or add zeny when kill
 		mob, isMob := target.(Mober)
-		if !isMob {
-			return
+		if isMob {
+			c.onKillMob(mob)
 		}
-		c.dzeny += mob.Level() * 100
-		clientCall := &ClientCall{
-			Receiver: "char",
-			Method:   "handleUpdateConfig",
-			Params: []interface{}{
-				struct {
-					Dzeny int `json:"dzeny"`
-				}{c.dzeny},
-			},
-		}
-		c.SendClientCall(clientCall)
 	}
 }
 
@@ -984,8 +1067,8 @@ func (c *Char) OnSceneObjectLeaveViewAOIFunc() func(SceneObjecter) {
 	}
 }
 
-func (c *Char) SendClientCall(msg *ClientCall) {
-	c.sock.SendClientCall(msg)
+func (c *Char) SendClientCall(msg ...*ClientCall) {
+	c.sock.SendClientCall(msg...)
 }
 
 func (c *Char) SendClientCalls(msg []*ClientCall) {

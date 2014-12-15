@@ -14,6 +14,7 @@ type Mober interface {
 	Bioer
 	MobClientBasic() *MobClientBasic
 	RebornState() *MobRebornState
+	BaseId() int
 }
 
 type MobClientBasic struct {
@@ -152,4 +153,8 @@ func (m *Mob) AfterUpdate(delta float32) {
 	if m.aiUpdate != nil {
 		m.aiUpdate(delta)
 	}
+}
+
+func (m *Mob) BaseId() int {
+	return m.baseId
 }

@@ -7,7 +7,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 	case 1:
 		npc.name = "傳送師"
 		npc.bodyViewId = 5000
-		npcOpt1 := &NpcOption{
+		npcOpt0 := &NpcOption{
 			name: "傳送",
 			onSelect: func(curNpc Npcer, nextNpcTalk *NpcTalk, b Bioer) {
 				if nextNpcTalk == nil {
@@ -29,7 +29,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 			title:   npc.name,
 			content: "blabla...傳送到野外地圖",
 			options: []*NpcOption{
-				npcOpt1,
+				npcOpt0,
 			},
 		}
 	case 2:
@@ -58,7 +58,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 					return
 				}
 				tNpcInfo := b.TalkingNpcInfo()
-				tNpcInfo.options = append(tNpcInfo.options, 1)
+				tNpcInfo.options = append(tNpcInfo.options, 0)
 				c, isCharer := b.(Charer)
 				if isCharer {
 					c.SendNpcTalkBox(nextNpcTalk)
@@ -100,6 +100,21 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 			},
 		}
 		npcOpt2 := &NpcOption{
+			name: "First Quest!",
+			onSelect: func(curNpc Npcer, nextNpcTalk *NpcTalk, b Bioer) {
+				if nextNpcTalk == nil {
+					switch c := b.(type) {
+					case Charer:
+						c.TakeQuest(NewQuestByBaseId(1))
+						c.CancelTalkingNpc()
+					default:
+						b.CancelTalkingNpc()
+					}
+					return
+				}
+			},
+		}
+		npcOpt3 := &NpcOption{
 			name: "Shop!",
 			onSelect: func(curNpc Npcer, nextNpcTalk *NpcTalk, b Bioer) {
 				if nextNpcTalk == nil {
@@ -121,6 +136,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 				npcOpt0,
 				npcOpt1,
 				npcOpt2,
+				npcOpt3,
 			},
 		}
 		npc.OnFirstBeTalked = func(curNpc Npcer, b Bioer) {
