@@ -283,9 +283,12 @@ func (s *Server) RunWeb() {
 		oauth2.PathLogin = "/oauth2login"
 		oauth2.PathLogout = "/oauth2logout"
 		facebookAuth := oauth2.Facebook(
-			goauth2.Client(fbAuth.ClientId, fbAuth.ClientSecret),
-			goauth2.RedirectURL(fbAuth.RedirectURL),
-			goauth2.Scope(fbAuth.Scope),
+      &goauth2.Config{
+        ClientID: fbAuth.ClientId,
+        ClientSecret: fbAuth.ClientSecret,
+        Scopes: []string{fbAuth.Scope},
+        RedirectURL: fbAuth.RedirectURL,
+      },
 		)
 		m.Use(facebookAuth)
 		// create account
