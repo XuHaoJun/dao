@@ -32,7 +32,7 @@ type World struct {
 	logger   *log.Logger
 	//
 	accountLoginBySessionMap map[string]string
-	addAccountLoginBySession chan *AccountLoginBySession
+	addAccountLoginBySession chan AccountLoginBySession
 	// SaveAccount     chan *Account
 	// RegisterAccount chan *WorldRegisterAccount
 	// LoginAccount    chan *WorldLoginAccount
@@ -47,7 +47,7 @@ type World struct {
 	// AccountLoginChar  chan *AccountLoginChar
 	// AccountCreateChar chan *AccountCreateChar
 	//
-	ParseClientCall chan *WorldParseClientCall
+	ParseClientCall chan WorldParseClientCall
 	//
 	interpreter      *WorldInterpreter
 	InterpreterREPL  chan string
@@ -84,6 +84,7 @@ type WorldTimer struct {
 
 func NewWorld(db *DaoDB, configs *DaoConfigs) (*World, error) {
 	name := configs.WorldConfigs.Name
+	numCPU := runtime.NumCPU()
 	w := &World{
 		name:                     name,
 		accounts:                 make(map[string]*Account),
@@ -91,17 +92,17 @@ func NewWorld(db *DaoDB, configs *DaoConfigs) (*World, error) {
 		db:                       db,
 		configs:                  NewDaoConfigs("./"),
 		logger:                   log.New(os.Stdout, "[dao-"+name+"] ", 0),
-		LogoutAccount:            make(chan *Account, 8),
-		SceneObjecterChangeScene: make(chan *ChangeScene, 8),
-		ParseClientCall:          make(chan *WorldParseClientCall, 10240),
-		InterpreterREPL:          make(chan string, 8),
-		InterpreterTimer:         make(chan *OttoTimer, 8),
-		worldTimer:               make(chan *WorldTimer, 128),
+		LogoutAccount:            make(chan *Account, numCPU),
+		SceneObjecterChangeScene: make(chan *ChangeScene, numCPU),
+		ParseClientCall:          make(chan WorldParseClientCall, numCPU),
+		InterpreterREPL:          make(chan string, numCPU),
+		InterpreterTimer:         make(chan *OttoTimer, numCPU),
+		worldTimer:               make(chan *WorldTimer, numCPU),
 		timers:                   make(map[*WorldTimer]*WorldTimer),
 		partys:                   make(map[string]*Party),
-		BioReborn:                make(chan Bioer, 10240),
+		BioReborn:                make(chan Bioer, numCPU*1024),
 		accountLoginBySessionMap: make(map[string]string, 32),
-		addAccountLoginBySession: make(chan *AccountLoginBySession, 8),
+		addAccountLoginBySession: make(chan AccountLoginBySession, numCPU),
 		//
 		delta:    1.0 / 60.0,
 		timeStep: (1.0 * time.Second / 60.0),
@@ -208,18 +209,18 @@ func (w *World) Run() {
 	defer w.db.session.Close()
 	go w.interpreter.Run()
 	physicC := time.Tick(w.timeStep)
-	wg := &sync.WaitGroup{}
+	sceneWg := &sync.WaitGroup{}
 	for i := 0; i < runtime.NumCPU(); i++ {
-		go w.sceneUpdateWorker(wg)
+		go w.sceneUpdateWorker(sceneWg)
 	}
 	for {
 		select {
 		case <-physicC:
-			wg.Add(len(w.scenes))
+			sceneWg.Add(len(w.scenes))
 			for _, scene := range w.scenes {
 				w.sceneUpdateJob <- scene
 			}
-			wg.Wait()
+			sceneWg.Wait()
 		case params := <-w.ParseClientCall:
 			w.DoParseClientCall(params.ClientCall, params.Conn)
 		case expr := <-w.InterpreterREPL:
@@ -249,7 +250,7 @@ func (w *World) Run() {
 		case b := <-w.BioReborn:
 			b.Reborn()
 		case <-w.Quit:
-			wg := &sync.WaitGroup{}
+			wg := sync.WaitGroup{}
 			wg.Add(len(w.accounts))
 			for _, acc := range w.accounts {
 				go func(a *Account) {
@@ -297,7 +298,8 @@ func (w *World) registerAccount(username string, password string, email string, 
 		acc.world = w
 		acc.maxChars = w.configs.AccountConfigs.MaxChars
 		acc.Save()
-		go w.db.UpdateAccountIndex()
+		d2 := w.db.CloneSession()
+		go d2.UpdateAccountIndex()
 		clientParams := []interface{}{"success register a new account!"}
 		clientCall := &ClientCall{
 			Receiver: "world",
@@ -388,7 +390,7 @@ func (w *World) DoParseClientCall(clientCall *ClientCall, conn *wsConn) {
 }
 
 func (w *World) RequestParseClientCall(c *ClientCall, conn *wsConn) {
-	w.ParseClientCall <- &WorldParseClientCall{c, conn}
+	w.ParseClientCall <- WorldParseClientCall{c, conn}
 }
 
 func (w *World) RemoveAccount(acc *Account) bool {

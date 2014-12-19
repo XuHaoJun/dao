@@ -311,7 +311,7 @@ func handleAccountLoginGameBySession(session sessions.Session, r render.Render, 
 	}
 	base, _ := uuid.NewV4()
 	token := base.String()
-	w.addAccountLoginBySession <- &AccountLoginBySession{
+	w.addAccountLoginBySession <- AccountLoginBySession{
 		username.(string),
 		token,
 	}
