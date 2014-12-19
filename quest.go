@@ -262,12 +262,12 @@ func (q *Quest) IncTargetMobCount(mid int, count int) bool {
 
 func (q *Quest) IsComplete() bool {
 	for _, questItem := range q.targetItems {
-		if questItem.currentCount != questItem.targetCount {
+		if questItem.currentCount < questItem.targetCount {
 			return false
 		}
 	}
 	for _, questMob := range q.targetMobs {
-		if questMob.currentCount != questMob.targetCount {
+		if questMob.currentCount < questMob.targetCount {
 			return false
 		}
 	}

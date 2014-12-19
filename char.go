@@ -97,6 +97,7 @@ type Charer interface {
 	SendNpcTalkBox(nt *NpcTalk)
 	TakeQuest(q *Quest)
 	ClearQuest(qid int)
+	FindQuest(qid int) (*Quest, bool)
 }
 
 type Char struct {
@@ -527,6 +528,11 @@ func (c *Char) TakeQuest(q *Quest) {
 	}
 	c.quests[q.baseId] = q
 	c.SendClientCall(c.ClientQuests())
+}
+
+func (c *Char) FindQuest(qid int) (*Quest, bool) {
+	quest, ok := c.quests[qid]
+	return quest, ok
 }
 
 // TODO
