@@ -9,7 +9,9 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 		npc.bodyViewId = 5000
 		npcOpt0 := &NpcOption{
 			name: "傳送",
-			onSelect: func(curNpc Npcer, nextNpcTalk *NpcTalk, b Bioer) {
+			onSelect: func(event NpcOptionSelectEvent) {
+				b := event.TargetBio
+				nextNpcTalk := event.NextNpcTalk
 				if nextNpcTalk == nil {
 					switch c := b.(type) {
 					case Charer:
@@ -47,7 +49,9 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 				title:   npc.name,
 				content: "hello hello hello hello.............",
 			},
-			onSelect: func(curNpc Npcer, nextNpcTalk *NpcTalk, b Bioer) {
+			onSelect: func(event NpcOptionSelectEvent) {
+				b := event.TargetBio
+				nextNpcTalk := event.NextNpcTalk
 				if nextNpcTalk == nil {
 					switch c := b.(type) {
 					case Charer:
@@ -76,7 +80,9 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 					npcOpt0,
 				},
 			},
-			onSelect: func(curNpc Npcer, nextNpcTalk *NpcTalk, b Bioer) {
+			onSelect: func(event NpcOptionSelectEvent) {
+				b := event.TargetBio
+				nextNpcTalk := event.NextNpcTalk
 				if nextNpcTalk == nil {
 					switch c := b.(type) {
 					case Charer:
@@ -101,22 +107,35 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 		}
 		npcOpt2 := &NpcOption{
 			name: "First Quest!",
-			onSelect: func(curNpc Npcer, nextNpcTalk *NpcTalk, b Bioer) {
-				if nextNpcTalk == nil {
-					switch c := b.(type) {
-					case Charer:
-						c.TakeQuest(NewQuestByBaseId(1))
-						c.CancelTalkingNpc()
-					default:
-						b.CancelTalkingNpc()
+			onSelect: func(event NpcOptionSelectEvent) {
+				b := event.TargetBio
+				curNpc := event.CurrentNpc
+				switch c := b.(type) {
+				case Charer:
+					questBaseId := 1
+					quest, found := c.FindQuest(questBaseId)
+					if !found {
+						c.TakeQuest(NewQuestByBaseId(questBaseId))
+					} else {
+						if quest.IsComplete() {
+							c.ClearQuest(questBaseId)
+							c.SendChatMessage("System", curNpc.Name(), "You completed quest!")
+						} else {
+							c.SendChatMessage("System", curNpc.Name(), "Youa not complete quest!")
+						}
 					}
-					return
+					c.CancelTalkingNpc()
+				default:
+					b.CancelTalkingNpc()
 				}
 			},
 		}
 		npcOpt3 := &NpcOption{
 			name: "Shop!",
-			onSelect: func(curNpc Npcer, nextNpcTalk *NpcTalk, b Bioer) {
+			onSelect: func(event NpcOptionSelectEvent) {
+				b := event.TargetBio
+				nextNpcTalk := event.NextNpcTalk
+				curNpc := event.CurrentNpc
 				if nextNpcTalk == nil {
 					switch c := b.(type) {
 					case Charer:

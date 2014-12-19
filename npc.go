@@ -64,8 +64,15 @@ type NpcTalkClient struct {
 
 type NpcOption struct {
 	name        string
-	onSelect    func(npc Npcer, nextNpcTalk *NpcTalk, b Bioer)
+	onSelect    func(event NpcOptionSelectEvent)
 	nextNpcTalk *NpcTalk
+}
+
+type NpcOptionSelectEvent struct {
+	CurrentNpc     Npcer
+	CurrentNpcTalk *NpcTalk
+	NextNpcTalk    *NpcTalk
+	TargetBio      Bioer
 }
 
 func (no *NpcOption) NpcOptionClient() *NpcOptionClient {
@@ -161,11 +168,13 @@ func (n *Npc) SelectOption(optIndex int, b Bioer) {
 	targetNpcTalk := nextNpcTalk
 	onSelect := targetNpcTalk.options[optIndex].onSelect
 	if onSelect != nil {
-		logger := n.world.logger
-		logger.Println(targetNpcTalk)
-		onSelect(n.Npcer(),
+		event := NpcOptionSelectEvent{
+			n.Npcer(),
+			targetNpcTalk,
 			targetNpcTalk.options[optIndex].nextNpcTalk,
-			b)
+			b,
+		}
+		onSelect(event)
 	}
 }
 
