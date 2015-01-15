@@ -154,7 +154,7 @@ func (s *Server) parseCommandLineFlags() {
 	flag.IntVar(&scFlags.HttpPort, "httpPort",
 		3000, "Http port")
 	flag.IntVar(&scFlags.WebsocketPort, "websocketPort",
-		3001, "Main game loop connection websocket port")
+		3000, "Main game loop connection websocket port")
 	flag.BoolVar(&scFlags.EnableConfigFiles, "enableConfigFiles",
 		true, "Read config files.")
 	flag.StringVar(&scFlags.ConfigDirPath, "configDir",
@@ -162,7 +162,7 @@ func (s *Server) parseCommandLineFlags() {
 	flag.StringVar(&scFlags.MongodbURL, "mongodbURL",
 		"127.0.0.1", "MongoDB URL.")
 	flag.StringVar(&scFlags.MongodbDBName, "mongodbDBName",
-		"dao", "MongoDB Db name.")
+		"dao", "MongoDB db name.")
 	// TODO
 	// production mode not imple!
 	flag.BoolVar(&scFlags.ProductionMode, "production",
@@ -175,7 +175,7 @@ func (s *Server) useCommandLienFlags() {
 	if scFlags.HttpPort != 3000 {
 		s.configs.ServerConfigs.HttpPort = scFlags.HttpPort
 	}
-	if scFlags.WebsocketPort != 3001 {
+	if scFlags.WebsocketPort != 3000 {
 		s.configs.ServerConfigs.WebsocketPort = scFlags.WebsocketPort
 	}
 	if scFlags.MongodbURL != "127.0.0.1" {
