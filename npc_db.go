@@ -8,6 +8,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 		npc.name = "傳送師"
 		npc.bodyViewId = 5000
 		npcOpt0 := &NpcOption{
+			key:  0,
 			name: "傳送",
 			onSelect: func(event NpcOptionSelectEvent) {
 				b := event.TargetBio
@@ -44,6 +45,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 			npc.Bioer(),
 			npc.world}
 		npcOpt0 := &NpcOption{
+			key:  0,
 			name: "Hello",
 			nextNpcTalk: &NpcTalk{
 				title:   npc.name,
@@ -72,6 +74,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 			},
 		}
 		npcOpt1 := &NpcOption{
+			key:  1,
 			name: "HaHa",
 			nextNpcTalk: &NpcTalk{
 				title:   npc.name,
@@ -106,6 +109,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 			},
 		}
 		npcOpt2 := &NpcOption{
+			key:  2,
 			name: "First Quest!",
 			onSelect: func(event NpcOptionSelectEvent) {
 				b := event.TargetBio
@@ -121,7 +125,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 							c.ClearQuest(questBaseId)
 							c.SendChatMessage("System", curNpc.Name(), "You completed quest!")
 						} else {
-							c.SendChatMessage("System", curNpc.Name(), "Youa not complete quest!")
+							c.SendChatMessage("System", curNpc.Name(), "You not complete quest!")
 						}
 					}
 					c.CancelTalkingNpc()
@@ -131,6 +135,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 			},
 		}
 		npcOpt3 := &NpcOption{
+			key:  3,
 			name: "Shop!",
 			onSelect: func(event NpcOptionSelectEvent) {
 				b := event.TargetBio

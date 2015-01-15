@@ -63,6 +63,7 @@ type NpcTalkClient struct {
 }
 
 type NpcOption struct {
+	key         int
 	name        string
 	onSelect    func(event NpcOptionSelectEvent)
 	nextNpcTalk *NpcTalk
