@@ -1,8 +1,9 @@
 package dao
 
 import (
+	"encoding/json"
 	"gopkg.in/mgo.v2"
-	"os/exec"
+	"io/ioutil"
 )
 
 type DaoDB struct {
@@ -36,15 +37,15 @@ func (d *DaoDB) UpdateAccountIndex() {
 }
 
 func (d *DaoDB) ImportDefaultJsonDB() error {
-	itemCmd := exec.Command("mongoimport", "--host", d.url, "--db", d.dbName,
-		"--collection", "items", "--type", "json",
-		"--file", "db/item_db.json", "--quiet", "--jsonArray",
-		"--upsert", "--upsertFields", "item.baseId")
-	err := itemCmd.Run()
+	dat, err := ioutil.ReadFile("db/item_db.json")
+	var items []interface{}
+	err = json.Unmarshal(dat, &items)
 	if err != nil {
 		return err
 	}
-	go d.items.EnsureIndexKey("item.baseId")
+	d.items.DropCollection()
+	d.items.Insert(items...)
+	d.items.EnsureIndexKey("item.baseId")
 	return nil
 }
 
