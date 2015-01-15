@@ -134,7 +134,7 @@ func NewDaoConfigs(dirPrefix string) *DaoConfigs {
 		},
 		ServerConfigs: &ServerConfigs{
 			HttpPort:      3000,
-			WebsocketPort: 3001,
+			WebsocketPort: 3000,
 			SessionKey:    "DaoSecret",
 			ClientVersion: "0.0.1",
 		},

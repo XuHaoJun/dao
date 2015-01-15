@@ -6,9 +6,9 @@ import (
 	"github.com/go-martini/martini"
 	"github.com/gorilla/websocket"
 	"github.com/martini-contrib/binding"
-	"github.com/martini-contrib/gzip"
 	"github.com/martini-contrib/render"
 	"github.com/martini-contrib/sessions"
+	"github.com/xuhaojun/gzip"
 	"github.com/xuhaojun/oauth2"
 	goauth2 "golang.org/x/oauth2"
 	"log"
@@ -274,6 +274,7 @@ func (s *Server) RunWeb() {
 	m := martini.Classic()
 	m.Map(s.configs)
 	m.Map(s.world)
+	m.Map(s)
 	m.Use(gzip.All())
 	m.Use(sessions.Sessions("_auth", store))
 	m.Use(s.DBHandler())
@@ -283,12 +284,12 @@ func (s *Server) RunWeb() {
 		oauth2.PathLogin = "/oauth2login"
 		oauth2.PathLogout = "/oauth2logout"
 		facebookAuth := oauth2.Facebook(
-      &goauth2.Config{
-        ClientID: fbAuth.ClientId,
-        ClientSecret: fbAuth.ClientSecret,
-        Scopes: []string{fbAuth.Scope},
-        RedirectURL: fbAuth.RedirectURL,
-      },
+			&goauth2.Config{
+				ClientID:     fbAuth.ClientId,
+				ClientSecret: fbAuth.ClientSecret,
+				Scopes:       []string{fbAuth.Scope},
+				RedirectURL:  fbAuth.RedirectURL,
+			},
 		)
 		m.Use(facebookAuth)
 		// create account
@@ -312,8 +313,17 @@ func (s *Server) RunWeb() {
 	m.Get("/account/isLogined", haldeAccountIsLogined)
 	// sync client
 	m.Get("/clientVersion", handleClientVersion)
+	// websocket port
+	m.Get("/websocketPort", handleWebsocketPort)
 	// server run
 	httpPort := s.configs.ServerConfigs.HttpPort
+	wsPort := s.configs.ServerConfigs.WebsocketPort
+	if httpPort != wsPort {
+		go s.RunWebSocket()
+	} else {
+		go s.wsHub.Run()
+		m.Get("/daows", serveWs)
+	}
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(httpPort), m))
 }
 
@@ -331,7 +341,6 @@ func (s *Server) run() {
 
 func (s *Server) Run() {
 	go s.RunWeb()
-	go s.RunWebSocket()
 	go s.world.Run()
 	s.run()
 }

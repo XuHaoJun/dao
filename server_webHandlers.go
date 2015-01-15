@@ -388,3 +388,7 @@ func handleClientVersion(r render.Render, s *Server) {
 	}
 	r.JSON(200, clientCall)
 }
+
+func handleWebsocketPort(r render.Render, s *Server) {
+	r.JSON(200, s.configs.ServerConfigs.WebsocketPort)
+}
