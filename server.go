@@ -144,7 +144,8 @@ type ServerCommandLineFlags struct {
 	EnableConfigFiles bool
 	WebsocketPort     int
 	ConfigDirPath     string
-	MongoDBURL        string
+	MongodbURL        string
+	MongodbDBName     string
 	ProductionMode    bool
 }
 
@@ -158,8 +159,10 @@ func (s *Server) parseCommandLineFlags() {
 		true, "Read config files.")
 	flag.StringVar(&scFlags.ConfigDirPath, "configDir",
 		"./", "Dao Configuraiton dir.")
-	flag.StringVar(&scFlags.MongoDBURL, "mongodbURL",
+	flag.StringVar(&scFlags.MongodbURL, "mongodbURL",
 		"127.0.0.1", "MongoDB URL.")
+	flag.StringVar(&scFlags.MongodbDBName, "mongodbDBName",
+		"dao", "MongoDB Db name.")
 	// TODO
 	// production mode not imple!
 	flag.BoolVar(&scFlags.ProductionMode, "production",
@@ -175,8 +178,8 @@ func (s *Server) useCommandLienFlags() {
 	if scFlags.WebsocketPort != 3001 {
 		s.configs.ServerConfigs.WebsocketPort = scFlags.WebsocketPort
 	}
-	if scFlags.MongoDBURL != "127.0.0.1" {
-		s.configs.MongoDBConfigs.URL = scFlags.MongoDBURL
+	if scFlags.MongodbURL != "127.0.0.1" {
+		s.configs.MongoDBConfigs.URL = scFlags.MongodbURL
 	}
 }
 
