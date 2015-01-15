@@ -181,6 +181,12 @@ func (s *Server) useCommandLienFlags() {
 	if scFlags.MongodbURL != "127.0.0.1" {
 		s.configs.MongoDBConfigs.URL = scFlags.MongodbURL
 	}
+	if scFlags.MongodbDBName != "" {
+		if scFlags.MongodbDBName == "default" {
+			scFlags.MongodbDBName = ""
+		}
+		s.configs.MongoDBConfigs.DBName = scFlags.MongodbDBName
+	}
 }
 
 func NewServer() (ds *Server, err error) {
