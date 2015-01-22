@@ -39,7 +39,7 @@ func NewNpcByBaseId(w *World, id int) Npcer {
 		npc.name = "Jack"
 		npc.bodyViewId = 5000
 		npc.shop = &Shop{"Jack's Shop",
-			[]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+			[]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12,
 				5001, 5002, 5003, 5004,
 				10001, 10002},
 			npc.Bioer(),
